@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { syncTransactions } from "@/lib/mercury";
+import { syncTransactions, recalculateMonthlyCosts } from "@/lib/mercury";
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization");
@@ -13,6 +13,7 @@ export async function GET(request: Request) {
 
   try {
     const result = await syncTransactions(db);
+    await recalculateMonthlyCosts(db);
     return NextResponse.json({
       success: true,
       synced: result.synced,

@@ -20,11 +20,11 @@ interface Props {
 }
 
 const COLORS = [
-  "hsl(var(--chart-1))",
-  "hsl(var(--chart-2))",
-  "hsl(var(--chart-3))",
-  "hsl(var(--chart-4))",
-  "hsl(var(--chart-5))",
+  "#1b1b1b",
+  "#53a945",
+  "#c4b1f9",
+  "#f0b449",
+  "#5b9ee9",
 ];
 
 export function MarginTrendChart({ margins }: Props) {

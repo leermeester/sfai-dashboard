@@ -7,8 +7,13 @@
 - Uses CSV export via public link (`/export?format=csv`) — does NOT use the Google Sheets API
 - The spreadsheet must have "Anyone with the link" access enabled for CSV export to work
 - Service account credentials (`GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`) are in `.env` but the current implementation doesn't use them — it relies on public CSV export
-- Month header formats in the sheet vary: `Jan 2026`, `2026-01`, `01/2026` — all are handled by `normalizeMonth()`
 - Revenue amounts may contain `$`, `€`, `£`, commas, spaces — `parseAmount()` strips these
+- **Sheet structure is complex**: the CSV has description text in the first rows, a pipeline section, then the actual customer data after a "Customers" header row
+- **Month headers lack years**: "Jan", "Feb", "August [1-22]" etc. — years are inferred (first pass = 2025, after December rollover = 2026)
+- **Data before August 2025 is unreliable** — pre-Aug snapshots should be excluded
+- **Section terminator pattern**: parsing stops when hitting "SFAI" or team section headers to avoid treating team member names as customers
+- **Alvamed has two contract rows** in the sheet — both map to the same customer, revenue is additive
+- **"x" in a cell means the customer contract ended** — these cells are skipped
 
 ## Mercury Bank API
 
@@ -16,6 +21,10 @@
 - Customer matching is done by lowercase substring match on `counterpartyName` against `bankName` and `aliases`
 - `syncTransactions()` pulls last 90 days — older transactions won't be synced
 - Upsert on `mercuryId` prevents duplicates; existing manual reconciliation is preserved on re-sync
+- **Stripe payouts** show as counterparty "STRIPE" — these bundle multiple customer payments and Stripe takes a fee, so amounts don't match sheet values. Tagged with `[Stripe Payout]` prefix in description for identification. Must be manually reconciled.
+- **Bank name ≠ customer name**: EchoFam pays as "VSV VENTURES", Nouri as "J&B Health LLC", Yachet Master Hub as "oceanfront ventures group"
+- Non-customer transactions (WOLFPACK DIGITAL, Upwork Escrow, Payment Escrow, Mercury Cashback, Savings Interest) should be left unreconciled — they're vendor payments, not customer revenue
+- **Margin calculation handles Stripe gap**: `recalculateMargins()` falls back to sheet snapshot revenue when no reconciled bank payment exists for a customer-month
 
 ## Linear Integration
 

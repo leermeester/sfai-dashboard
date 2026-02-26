@@ -10,7 +10,10 @@ async function query(graphqlQuery: string, variables?: Record<string, unknown>) 
     body: JSON.stringify({ query: graphqlQuery, variables }),
   });
 
-  if (!res.ok) throw new Error(`Linear API error: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Linear API error: ${res.status} — ${body}`);
+  }
   const data = await res.json();
   if (data.errors) throw new Error(data.errors[0].message);
   return data.data;
@@ -126,6 +129,58 @@ export async function getTeamMembers(teamId: string): Promise<LinearUser[]> {
     { teamId }
   );
   return data.team.members.nodes;
+}
+
+export async function getCompletedIssues(
+  teamId: string,
+  startDate: string,
+  endDate: string
+): Promise<LinearIssue[]> {
+  let allIssues: LinearIssue[] = [];
+  let hasMore = true;
+  let cursor: string | null = null;
+
+  while (hasMore) {
+    const data = await query(
+      `
+      query($teamId: String!, $startDate: DateTimeOrDuration!, $endDate: DateTimeOrDuration!, $after: String) {
+        team(id: $teamId) {
+          issues(
+            filter: {
+              completedAt: { gte: $startDate, lte: $endDate }
+              state: { type: { eq: "completed" } }
+            }
+            first: 250
+            after: $after
+          ) {
+            nodes {
+              id
+              title
+              state { name type }
+              assignee { id name }
+              estimate
+              project { id name }
+              createdAt
+              completedAt
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+          }
+        }
+      }
+      `,
+      { teamId, startDate, endDate, after: cursor }
+    );
+
+    const issues = data.team.issues;
+    allIssues = allIssues.concat(issues.nodes);
+    hasMore = issues.pageInfo.hasNextPage;
+    cursor = issues.pageInfo.endCursor;
+  }
+
+  return allIssues;
 }
 
 export async function testConnection(): Promise<boolean> {

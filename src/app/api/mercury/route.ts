@@ -16,6 +16,27 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const body = await request.json();
 
+  if (body.action === "categorize") {
+    const { txnId, costCategory } = body;
+    const txn = await db.bankTransaction.findUnique({ where: { id: txnId } });
+    if (!txn) {
+      return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
+    }
+
+    await db.bankTransaction.update({
+      where: { id: txnId },
+      data: { costCategory },
+    });
+
+    // Recalculate monthly costs for the affected month
+    if (txn.postedAt) {
+      const { recalculateMonthlyCosts } = await import("@/lib/mercury");
+      await recalculateMonthlyCosts(db);
+    }
+
+    return NextResponse.json({ success: true });
+  }
+
   if (body.action === "reconcile") {
     const { txnId, customerId } = body;
     const txn = await db.bankTransaction.findUnique({ where: { id: txnId } });

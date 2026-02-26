@@ -27,6 +27,7 @@ export async function PUT(request: Request) {
       displayName: customer.displayName,
       spreadsheetName: customer.spreadsheetName || null,
       bankName: customer.bankName || null,
+      emailDomain: customer.emailDomain || null,
       linearProjectId: customer.linearProjectId || null,
       email: customer.email || null,
       aliases: customer.aliases ?? [],

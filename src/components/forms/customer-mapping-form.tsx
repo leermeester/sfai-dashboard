@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,11 +15,17 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Plus, Save, Trash2 } from "lucide-react";
 
+interface DomainSuggestion {
+  domain: string;
+  meetingCount: number;
+}
+
 interface Customer {
   id: string;
   displayName: string;
   spreadsheetName: string | null;
   bankName: string | null;
+  emailDomain: string | null;
   linearProjectId: string | null;
   email: string | null;
   aliases: string[];
@@ -33,6 +39,16 @@ export function CustomerMappingForm({
 }) {
   const [customers, setCustomers] = useState(initialCustomers);
   const [saving, setSaving] = useState(false);
+  const [domainSuggestions, setDomainSuggestions] = useState<DomainSuggestion[]>([]);
+
+  useEffect(() => {
+    fetch("/api/calendar?domains=true")
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (data?.domains) setDomainSuggestions(data.domains);
+      })
+      .catch(() => {});
+  }, []);
 
   function addCustomer() {
     setCustomers((prev) => [
@@ -42,6 +58,7 @@ export function CustomerMappingForm({
         displayName: "",
         spreadsheetName: null,
         bankName: null,
+        emailDomain: null,
         linearProjectId: null,
         email: null,
         aliases: [],
@@ -56,7 +73,7 @@ export function CustomerMappingForm({
       if (field === "aliases") {
         updated[index] = {
           ...updated[index],
-          aliases: value.split(",").map((s) => s.trim()).filter(Boolean),
+          aliases: value.split(",").map((s) => s.trim()),
         };
       } else {
         updated[index] = { ...updated[index], [field]: value || null };
@@ -75,7 +92,12 @@ export function CustomerMappingForm({
       const res = await fetch("/api/settings/customers", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customers }),
+        body: JSON.stringify({
+        customers: customers.map((c) => ({
+          ...c,
+          aliases: c.aliases.filter(Boolean),
+        })),
+      }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -95,6 +117,7 @@ export function CustomerMappingForm({
               <TableHead>Display Name</TableHead>
               <TableHead>Spreadsheet Name</TableHead>
               <TableHead>Bank Name</TableHead>
+              <TableHead>Email Domain</TableHead>
               <TableHead>Linear Project ID</TableHead>
               <TableHead>Aliases (comma-separated)</TableHead>
               <TableHead></TableHead>
@@ -131,6 +154,17 @@ export function CustomerMappingForm({
                     }
                     placeholder="As in Mercury"
                     className="min-w-[150px]"
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    value={customer.emailDomain ?? ""}
+                    onChange={(e) =>
+                      updateCustomer(index, "emailDomain", e.target.value)
+                    }
+                    placeholder="e.g. nouri.health"
+                    className="min-w-[130px]"
+                    list="domain-suggestions"
                   />
                 </TableCell>
                 <TableCell>
@@ -181,6 +215,14 @@ export function CustomerMappingForm({
           {customers.length} customers
         </Badge>
       </div>
+
+      <datalist id="domain-suggestions">
+        {domainSuggestions.map((s) => (
+          <option key={s.domain} value={s.domain}>
+            {s.domain} ({s.meetingCount} meetings)
+          </option>
+        ))}
+      </datalist>
     </div>
   );
 }

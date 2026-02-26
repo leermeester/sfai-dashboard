@@ -16,6 +16,7 @@ interface ConnectionStatus {
   mercury: boolean | null;
   linear: boolean | null;
   sheets: boolean | null;
+  calendar: boolean | null;
 }
 
 export function ApiStatusPanel() {
@@ -23,6 +24,7 @@ export function ApiStatusPanel() {
     mercury: null,
     linear: null,
     sheets: null,
+    calendar: null,
   });
   const [testing, setTesting] = useState<string | null>(null);
 
@@ -69,6 +71,12 @@ export function ApiStatusPanel() {
       name: "Google Sheets",
       description: "Sales pipeline spreadsheet",
       envVar: "GOOGLE_SERVICE_ACCOUNT_EMAIL",
+    },
+    {
+      key: "calendar" as const,
+      name: "Google Calendar",
+      description: "Client meeting time tracking via Apps Script export",
+      envVar: "GOOGLE_CALENDAR_SHEET_ID",
     },
   ];
 

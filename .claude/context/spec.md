@@ -46,13 +46,15 @@ Access is restricted to co-founders only (Arthur, DJ).
 | Team roster table | Implemented | Name, role, rate, cost, active status |
 | Capacity vs Demand chart | Implemented | Allocated hours per member |
 | Demand forecast form | Implemented | Short-term (2 weeks) and long-term forecasts |
+| Client meeting hours table | Implemented | Team member × customer matrix from Google Calendar |
+| Calendar sync button | Implemented | Manual trigger for calendar data sync |
 
 ### 2.5 Settings (`/settings`)
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Customer name mapping | Implemented | Maps names across Sheets, Mercury, Linear |
+| Customer name mapping | Implemented | Maps names across Sheets, Mercury, Linear + email domain |
 | Team member configuration | Implemented | Roles, rates, costs, Linear user IDs |
-| Integration status panel | Implemented | Connection test for all APIs |
+| Integration status panel | Implemented | Connection test for all APIs (incl. Calendar) |
 
 ---
 
@@ -63,6 +65,7 @@ Access is restricted to co-founders only (Arthur, DJ).
 | Google Sheets | Revenue data (customer x month) | CSV export via public link | Implemented |
 | Mercury | Bank transactions for reconciliation | REST API (Bearer token) | Implemented |
 | Linear | Team workload, project mapping | GraphQL API | Implemented |
+| Google Calendar | Client meeting time tracking | Apps Script → Sheet → CSV | Implemented |
 | PostgreSQL (Vercel) | Persistent storage | Prisma ORM | Implemented |
 
 ---
@@ -73,6 +76,7 @@ Access is restricted to co-founders only (Arthur, DJ).
 |-----|----------|---------|
 | `/api/cron/snapshot` | 1st of each month at 00:00 UTC | Snapshot Google Sheets revenue data |
 | `/api/cron/sync` | Daily at 08:00 UTC | Sync Mercury bank transactions |
+| `/api/cron/calendar` | Daily | Sync Google Calendar meetings |
 
 ---
 
@@ -96,6 +100,7 @@ Access is restricted to co-founders only (Arthur, DJ).
 | `TimeAllocation` | % of team member time per customer per month |
 | `DemandForecast` | Hours needed per customer (short-term / long-term) |
 | `MonthlyMargin` | Computed: revenue, cost, margin per customer per month |
+| `ClientMeeting` | Calendar meetings mapped to customer × team member |
 
 ---
 

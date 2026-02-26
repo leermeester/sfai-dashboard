@@ -11,9 +11,16 @@ import { db } from "@/lib/db";
 import { TimeAllocationForm } from "@/components/forms/time-allocation-form";
 import { MarginTable } from "@/components/tables/margin-table";
 import { MarginTrendChart } from "@/components/charts/margin-trend-chart";
-import { getCurrentMonth, formatCurrency } from "@/lib/utils";
+import { getCurrentMonth, formatCurrency, getWeeksInMonth } from "@/lib/utils";
+import { syncLinearAllocations } from "@/lib/linear-sync";
+import { MonthPicker } from "@/components/month-picker";
 
-export default async function MarginsPage() {
+export default async function MarginsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ month?: string }>;
+}) {
+  const params = await searchParams;
   const teamMembers = await db.teamMember.findMany({
     where: { isActive: true },
     orderBy: { name: "asc" },
@@ -24,9 +31,35 @@ export default async function MarginsPage() {
     orderBy: { displayName: "asc" },
   });
 
-  const currentMonth = getCurrentMonth();
+  const selectedMonth = params.month ?? getCurrentMonth();
+  const weeks = getWeeksInMonth(selectedMonth);
+
+  // Auto-sync Linear data on page load (uses daily cache)
+  let syncStatus = {
+    synced: false,
+    syncedAt: null as string | null,
+    error: null as string | null,
+    issueCount: 0,
+    unmappedCount: 0,
+  };
+  try {
+    const result = await syncLinearAllocations(selectedMonth, false);
+    const cache = await db.linearSyncCache.findUnique({
+      where: { month: selectedMonth },
+    });
+    syncStatus = {
+      synced: !!cache,
+      syncedAt: cache?.syncedAt.toISOString() ?? null,
+      error: null,
+      issueCount: result.issueCount,
+      unmappedCount: result.unmappedCount,
+    };
+  } catch (e) {
+    syncStatus.error = String(e);
+  }
+
   const allocations = await db.timeAllocation.findMany({
-    where: { month: currentMonth },
+    where: { month: selectedMonth },
     include: { teamMember: true, customer: true },
   });
 
@@ -36,7 +69,7 @@ export default async function MarginsPage() {
   });
 
   // Calculate totals for current month
-  const currentMargins = margins.filter((m) => m.month === currentMonth);
+  const currentMargins = margins.filter((m) => m.month === selectedMonth);
   const totalRevenue = currentMargins.reduce((sum, m) => sum + m.revenue, 0);
   const totalCost = currentMargins.reduce(
     (sum, m) => sum + m.engineeringCost,
@@ -48,11 +81,14 @@ export default async function MarginsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Margins</h2>
-        <p className="text-muted-foreground">
-          Per-customer profitability and cost analysis.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Margins</h2>
+          <p className="text-muted-foreground">
+            Per-customer profitability and cost analysis.
+          </p>
+        </div>
+        <MonthPicker currentMonth={selectedMonth} />
       </div>
 
       {/* P&L Summary */}
@@ -110,7 +146,7 @@ export default async function MarginsPage() {
         <CardHeader>
           <CardTitle>Customer Margins</CardTitle>
           <CardDescription>
-            Revenue vs engineering cost per customer for {currentMonth}.
+            Revenue vs engineering cost per customer for {selectedMonth}.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -148,13 +184,17 @@ export default async function MarginsPage() {
         <CardHeader>
           <CardTitle>Time Allocation</CardTitle>
           <CardDescription>
-            Estimate % of each engineer&apos;s time per project for{" "}
-            {currentMonth}. Percentages per engineer should sum to ~100%.
+            Weekly allocation percentages per engineer per customer for{" "}
+            {selectedMonth}. Auto-populated from Linear completed tickets.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <TimeAllocationForm
-            month={currentMonth}
+            month={selectedMonth}
+            weeks={weeks.map((w) => ({
+              weekNumber: w.weekNumber,
+              label: w.label,
+            }))}
             teamMembers={teamMembers.map((m) => ({
               id: m.id,
               name: m.name,
@@ -165,11 +205,13 @@ export default async function MarginsPage() {
               displayName: c.displayName,
             }))}
             existingAllocations={allocations.map((a) => ({
-              id: a.id,
               teamMemberId: a.teamMemberId,
               customerId: a.customerId,
+              week: a.week,
               percentage: a.percentage,
+              source: a.source,
             }))}
+            syncStatus={syncStatus}
           />
         </CardContent>
       </Card>

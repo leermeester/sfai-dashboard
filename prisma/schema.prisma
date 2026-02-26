@@ -22,6 +22,7 @@ model TeamMember {
 
   allocations     TimeAllocation[]
   demandForecasts DemandForecast[]
+  meetings        ClientMeeting[]
 }
 
 model Customer {
@@ -29,6 +30,7 @@ model Customer {
   displayName     String
   spreadsheetName String?
   bankName        String?
+  emailDomain     String?  // e.g. "nouri.health" — for matching calendar attendees
   linearProjectId String?
   email           String?
   aliases         String[]
@@ -41,6 +43,18 @@ model Customer {
   allocations     TimeAllocation[]
   demandForecasts DemandForecast[]
   margins         MonthlyMargin[]
+  meetings        ClientMeeting[]
+  domainMappings  DomainMapping[]
+}
+
+model DomainMapping {
+  id          String    @id @default(cuid())
+  domain      String    @unique
+  meetingType String    // "client", "sales", "internal", "ignore"
+  customerId  String?
+  customer    Customer? @relation(fields: [customerId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model SalesSnapshot {
@@ -72,9 +86,13 @@ model BankTransaction {
   createdAt        DateTime  @default(now())
   isReconciled     Boolean   @default(false)
   reconciledMonth  String?
+  direction        String    @default("incoming") // "incoming" or "outgoing"
+  costCategory     String?   // "labor", "software", "other"
 
   @@index([customerId])
   @@index([postedAt])
+  @@index([direction])
+  @@index([costCategory])
 }
 
 model DemandForecast {
@@ -84,7 +102,7 @@ model DemandForecast {
   teamMemberId String?
   teamMember   TeamMember? @relation(fields: [teamMemberId], references: [id])
   month        String
-  forecastType String      // "short_term" or "long_term"
+  forecastType String      // "this_week" or "next_week"
   hoursNeeded  Float
   confidence   String?     // "high", "medium", "low"
   notes        String?
@@ -102,12 +120,23 @@ model TimeAllocation {
   customerId   String
   customer     Customer   @relation(fields: [customerId], references: [id])
   month        String
+  week         Int        // 1-5, week number within the month
   percentage   Float
+  source       String     @default("manual") // "linear" or "manual"
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  @@unique([teamMemberId, customerId, month])
+  @@unique([teamMemberId, customerId, month, week])
   @@index([month])
+}
+
+model LinearSyncCache {
+  id       String   @id @default(cuid())
+  month    String   @unique
+  syncedAt DateTime
+  data     String   // JSON-serialized completed issues
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model MonthlyMargin {
@@ -123,4 +152,44 @@ model MonthlyMargin {
   updatedAt       DateTime @updatedAt
 
   @@unique([customerId, month])
+}
+
+model VendorCategoryRule {
+  id            String   @id @default(cuid())
+  vendorPattern String   @unique // Substring match against counterpartyName
+  category      String   // "labor", "software", "other"
+  displayName   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model MonthlyCostSummary {
+  id           String   @id @default(cuid())
+  month        String   @unique // "2026-01"
+  laborCost    Float    @default(0)
+  softwareCost Float    @default(0)
+  otherCost    Float    @default(0)
+  totalCost    Float    @default(0)
+  calculatedAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model ClientMeeting {
+  id              String      @id @default(cuid())
+  googleEventId   String      @unique
+  meetingType     String      @default("client") // "client", "sales", "internal"
+  customerId      String?
+  customer        Customer?   @relation(fields: [customerId], references: [id])
+  teamMemberId    String
+  teamMember      TeamMember  @relation(fields: [teamMemberId], references: [id])
+  date            DateTime
+  durationMinutes Int
+  title           String
+  attendeeEmails  String[]
+  externalDomains String[]
+  syncedAt        DateTime    @default(now())
+
+  @@index([customerId, date])
+  @@index([teamMemberId, date])
+  @@index([meetingType])
 }

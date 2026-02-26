@@ -67,12 +67,12 @@ export async function testConnection(): Promise<boolean> {
 export async function syncTransactions(db: import("@prisma/client").PrismaClient) {
   const accounts = await getAccounts();
   const customers = await db.customer.findMany();
+  const vendorRules = await db.vendorCategoryRule.findMany();
 
   let synced = 0;
   let reconciled = 0;
 
   for (const account of accounts) {
-    // Get last 90 days of transactions
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - 90);
     const transactions = await getTransactions(
@@ -81,68 +81,154 @@ export async function syncTransactions(db: import("@prisma/client").PrismaClient
     );
 
     for (const txn of transactions) {
-      // Only process incoming (positive) transactions for revenue
-      if (txn.amount <= 0) continue;
+      const direction = txn.amount > 0 ? "incoming" : "outgoing";
 
-      // Try to match counterparty to a customer
-      let matchedCustomerId: string | null = null;
-      const counterparty = txn.counterpartyName?.toLowerCase() ?? "";
+      if (direction === "incoming") {
+        const counterparty = txn.counterpartyName?.toLowerCase() ?? "";
+        const STRIPE_NAMES = ["stripe", "stripe payments", "stripe technology"];
+        const isStripePayout = STRIPE_NAMES.some((s) => counterparty.includes(s));
 
-      for (const customer of customers) {
-        const bankName = customer.bankName?.toLowerCase();
-        if (bankName && counterparty.includes(bankName)) {
-          matchedCustomerId = customer.id;
-          break;
-        }
-        // Check aliases
-        for (const alias of customer.aliases) {
-          if (counterparty.includes(alias.toLowerCase())) {
+        let matchedCustomerId: string | null = null;
+
+        for (const customer of customers) {
+          const bankName = customer.bankName?.toLowerCase();
+          if (bankName && counterparty.includes(bankName)) {
             matchedCustomerId = customer.id;
             break;
           }
+          for (const alias of customer.aliases) {
+            if (counterparty.includes(alias.toLowerCase())) {
+              matchedCustomerId = customer.id;
+              break;
+            }
+          }
+          if (matchedCustomerId) break;
         }
-        if (matchedCustomerId) break;
+
+        let reconciledMonth: string | null = null;
+        if (matchedCustomerId && txn.postedAt) {
+          const posted = new Date(txn.postedAt);
+          reconciledMonth = `${posted.getFullYear()}-${String(posted.getMonth() + 1).padStart(2, "0")}`;
+        }
+
+        await db.bankTransaction.upsert({
+          where: { mercuryId: txn.id },
+          create: {
+            mercuryId: txn.id,
+            amount: txn.amount,
+            currency: "USD",
+            description: isStripePayout
+              ? `[Stripe Payout] ${txn.note || txn.kind}`
+              : txn.note || txn.kind,
+            counterpartyName: txn.counterpartyName,
+            status: txn.status,
+            postedAt: txn.postedAt ? new Date(txn.postedAt) : null,
+            customerId: matchedCustomerId,
+            isReconciled: !!matchedCustomerId,
+            reconciledMonth,
+            direction: "incoming",
+          },
+          update: {
+            status: txn.status,
+            postedAt: txn.postedAt ? new Date(txn.postedAt) : null,
+            ...(matchedCustomerId
+              ? {
+                  customerId: matchedCustomerId,
+                  isReconciled: true,
+                  reconciledMonth,
+                }
+              : {}),
+          },
+        });
+
+        synced++;
+        if (matchedCustomerId) reconciled++;
+      } else {
+        // Outgoing transaction: categorize by vendor rules
+        const counterparty = txn.counterpartyName?.toLowerCase() ?? "";
+
+        let costCategory: string | null = null;
+        for (const rule of vendorRules) {
+          if (counterparty.includes(rule.vendorPattern.toLowerCase())) {
+            costCategory = rule.category;
+            break;
+          }
+        }
+
+        await db.bankTransaction.upsert({
+          where: { mercuryId: txn.id },
+          create: {
+            mercuryId: txn.id,
+            amount: txn.amount,
+            currency: "USD",
+            description: txn.note || txn.kind,
+            counterpartyName: txn.counterpartyName,
+            status: txn.status,
+            postedAt: txn.postedAt ? new Date(txn.postedAt) : null,
+            direction: "outgoing",
+            costCategory,
+          },
+          update: {
+            status: txn.status,
+            postedAt: txn.postedAt ? new Date(txn.postedAt) : null,
+            ...(costCategory ? { costCategory } : {}),
+          },
+        });
+
+        synced++;
       }
-
-      // Determine the reconciled month from postedAt
-      let reconciledMonth: string | null = null;
-      if (matchedCustomerId && txn.postedAt) {
-        const posted = new Date(txn.postedAt);
-        reconciledMonth = `${posted.getFullYear()}-${String(posted.getMonth() + 1).padStart(2, "0")}`;
-      }
-
-      await db.bankTransaction.upsert({
-        where: { mercuryId: txn.id },
-        create: {
-          mercuryId: txn.id,
-          amount: txn.amount,
-          currency: "USD",
-          description: txn.note || txn.kind,
-          counterpartyName: txn.counterpartyName,
-          status: txn.status,
-          postedAt: txn.postedAt ? new Date(txn.postedAt) : null,
-          customerId: matchedCustomerId,
-          isReconciled: !!matchedCustomerId,
-          reconciledMonth,
-        },
-        update: {
-          status: txn.status,
-          postedAt: txn.postedAt ? new Date(txn.postedAt) : null,
-          // Only update reconciliation if not already manually reconciled
-          ...(matchedCustomerId
-            ? {
-                customerId: matchedCustomerId,
-                isReconciled: true,
-                reconciledMonth,
-              }
-            : {}),
-        },
-      });
-
-      synced++;
-      if (matchedCustomerId) reconciled++;
     }
   }
 
   return { synced, reconciled };
+}
+
+export async function recalculateMonthlyCosts(db: import("@prisma/client").PrismaClient) {
+  const outgoing = await db.bankTransaction.findMany({
+    where: { direction: "outgoing" },
+    select: { amount: true, postedAt: true, costCategory: true },
+  });
+
+  const monthMap = new Map<string, { labor: number; software: number; other: number }>();
+
+  for (const txn of outgoing) {
+    if (!txn.postedAt) continue;
+    const posted = new Date(txn.postedAt);
+    const month = `${posted.getFullYear()}-${String(posted.getMonth() + 1).padStart(2, "0")}`;
+    const entry = monthMap.get(month) ?? { labor: 0, software: 0, other: 0 };
+    const absAmount = Math.abs(txn.amount);
+
+    switch (txn.costCategory) {
+      case "labor":
+        entry.labor += absAmount;
+        break;
+      case "software":
+        entry.software += absAmount;
+        break;
+      default:
+        entry.other += absAmount;
+        break;
+    }
+    monthMap.set(month, entry);
+  }
+
+  for (const [month, costs] of monthMap) {
+    await db.monthlyCostSummary.upsert({
+      where: { month },
+      create: {
+        month,
+        laborCost: costs.labor,
+        softwareCost: costs.software,
+        otherCost: costs.other,
+        totalCost: costs.labor + costs.software + costs.other,
+      },
+      update: {
+        laborCost: costs.labor,
+        softwareCost: costs.software,
+        otherCost: costs.other,
+        totalCost: costs.labor + costs.software + costs.other,
+        calculatedAt: new Date(),
+      },
+    });
+  }
 }

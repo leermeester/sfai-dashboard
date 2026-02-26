@@ -3,23 +3,21 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
-import { Plus, Save, Trash2 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Save, MessageSquare } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface Forecast {
   id: string;
@@ -37,48 +35,159 @@ interface Props {
   existingForecasts: Forecast[];
 }
 
+type CellData = {
+  hoursNeeded: number;
+  confidence: string | null;
+  notes: string | null;
+};
+// Grid[customerId][teamMemberId | "unassigned"] = CellData
+type Grid = Record<string, Record<string, CellData>>;
+
+const UNASSIGNED = "unassigned";
+
+function buildGrid(
+  customers: Props["customers"],
+  teamMembers: Props["teamMembers"],
+  forecasts: Forecast[]
+): Grid {
+  const grid: Grid = {};
+  const colKeys = [...teamMembers.map((m) => m.id), UNASSIGNED];
+
+  for (const customer of customers) {
+    grid[customer.id] = {};
+    for (const colKey of colKeys) {
+      const existing = forecasts.find(
+        (f) =>
+          f.customerId === customer.id &&
+          (colKey === UNASSIGNED
+            ? f.teamMemberId === null
+            : f.teamMemberId === colKey)
+      );
+      grid[customer.id][colKey] = {
+        hoursNeeded: existing?.hoursNeeded ?? 0,
+        confidence: existing?.confidence ?? null,
+        notes: existing?.notes ?? null,
+      };
+    }
+  }
+  return grid;
+}
+
+function getRowTotal(grid: Grid, customerId: string): number {
+  let total = 0;
+  for (const cell of Object.values(grid[customerId] ?? {})) {
+    total += cell.hoursNeeded;
+  }
+  return total;
+}
+
+function getColTotal(grid: Grid, colKey: string): number {
+  let total = 0;
+  for (const customerCells of Object.values(grid)) {
+    total += customerCells[colKey]?.hoursNeeded ?? 0;
+  }
+  return total;
+}
+
+function getGrandTotal(grid: Grid): number {
+  let total = 0;
+  for (const customerCells of Object.values(grid)) {
+    for (const cell of Object.values(customerCells)) {
+      total += cell.hoursNeeded;
+    }
+  }
+  return total;
+}
+
+const confidenceLevels = [
+  { value: "high", label: "H", color: "bg-green-100 text-green-700 border-green-300" },
+  { value: "medium", label: "M", color: "bg-amber-100 text-amber-700 border-amber-300" },
+  { value: "low", label: "L", color: "bg-red-100 text-red-700 border-red-300" },
+];
+
+function ConfidenceDot({ confidence }: { confidence: string | null }) {
+  if (!confidence) return null;
+  const level = confidenceLevels.find((l) => l.value === confidence);
+  if (!level) return null;
+  const dotColor =
+    confidence === "high"
+      ? "bg-green-500"
+      : confidence === "medium"
+        ? "bg-amber-500"
+        : "bg-red-500";
+  return <span className={cn("inline-block size-1.5 rounded-full", dotColor)} />;
+}
+
 export function DemandForecastForm({
   forecastType,
   customers,
   teamMembers,
   existingForecasts,
 }: Props) {
-  const [forecasts, setForecasts] = useState<Forecast[]>(existingForecasts);
+  const [grid, setGrid] = useState<Grid>(() =>
+    buildGrid(customers, teamMembers, existingForecasts)
+  );
   const [saving, setSaving] = useState(false);
 
-  function addForecast() {
-    setForecasts((prev) => [
-      ...prev,
-      {
-        id: `new-${Date.now()}`,
-        customerId: customers[0]?.id ?? "",
-        teamMemberId: null,
-        hoursNeeded: 0,
-        confidence: "medium",
-        notes: null,
-      },
-    ]);
-  }
+  const colKeys = [...teamMembers.map((m) => m.id), UNASSIGNED];
+  const colNames: Record<string, string> = {};
+  for (const m of teamMembers) colNames[m.id] = m.name;
+  colNames[UNASSIGNED] = "Unassigned";
 
-  function updateForecast(
-    index: number,
-    field: string,
-    value: string | number | null
+  function updateHours(
+    customerId: string,
+    colKey: string,
+    value: number
   ) {
-    setForecasts((prev) => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
-      return updated;
-    });
+    setGrid((prev) => ({
+      ...prev,
+      [customerId]: {
+        ...prev[customerId],
+        [colKey]: { ...prev[customerId][colKey], hoursNeeded: value },
+      },
+    }));
   }
 
-  function removeForecast(index: number) {
-    setForecasts((prev) => prev.filter((_, i) => i !== index));
+  function updateMeta(
+    customerId: string,
+    colKey: string,
+    field: "confidence" | "notes",
+    value: string | null
+  ) {
+    setGrid((prev) => ({
+      ...prev,
+      [customerId]: {
+        ...prev[customerId],
+        [colKey]: { ...prev[customerId][colKey], [field]: value },
+      },
+    }));
   }
 
   async function handleSave() {
     setSaving(true);
     try {
+      const forecasts: Array<{
+        customerId: string;
+        teamMemberId: string | null;
+        hoursNeeded: number;
+        confidence: string | null;
+        notes: string | null;
+      }> = [];
+
+      for (const [customerId, cols] of Object.entries(grid)) {
+        for (const [colKey, cell] of Object.entries(cols)) {
+          if (cell.hoursNeeded > 0) {
+            forecasts.push({
+              customerId,
+              teamMemberId: colKey === UNASSIGNED ? null : colKey,
+              hoursNeeded: cell.hoursNeeded,
+              confidence: cell.confidence,
+              notes: cell.notes,
+            });
+          }
+        }
+      }
+
       await fetch("/api/demand-forecast", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -90,131 +199,183 @@ export function DemandForecastForm({
     }
   }
 
+  if (teamMembers.length === 0 || customers.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Add team members and customers in Settings first.
+      </p>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Customer</TableHead>
-            <TableHead>Assigned To</TableHead>
-            <TableHead>Hours Needed</TableHead>
-            <TableHead>Confidence</TableHead>
-            <TableHead>Notes</TableHead>
-            <TableHead></TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {forecasts.map((forecast, index) => (
-            <TableRow key={forecast.id}>
-              <TableCell>
-                <Select
-                  value={forecast.customerId}
-                  onValueChange={(val) =>
-                    updateForecast(index, "customerId", val)
-                  }
+      <div className="relative w-full overflow-auto max-h-[500px] border rounded-md">
+        <table className="w-full caption-bottom text-sm">
+          <TableHeader>
+            <TableRow>
+              <TableHead className="sticky left-0 top-0 z-30 bg-card min-w-[120px]">
+                Customer
+              </TableHead>
+              {colKeys.map((colKey) => (
+                <TableHead
+                  key={colKey}
+                  className={cn(
+                    "sticky top-0 z-20 bg-card text-center text-xs min-w-[70px] px-1",
+                    colKey === UNASSIGNED && "border-l border-muted"
+                  )}
                 >
-                  <SelectTrigger className="w-[160px]">
-                    <SelectValue placeholder="Customer" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {customers.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.displayName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  {colNames[colKey]}
+                </TableHead>
+              ))}
+              <TableHead className="sticky top-0 z-20 bg-card text-center text-xs min-w-[50px] border-l border-muted">
+                Total
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {customers.map((customer) => {
+              const rowTotal = getRowTotal(grid, customer.id);
+              return (
+                <TableRow key={customer.id}>
+                  <TableCell className="sticky left-0 z-10 bg-card font-medium text-sm py-1">
+                    {customer.displayName}
+                  </TableCell>
+                  {colKeys.map((colKey) => {
+                    const cell = grid[customer.id]?.[colKey];
+                    const hasMeta =
+                      (cell?.confidence && cell.confidence !== null) ||
+                      (cell?.notes && cell.notes !== null);
+                    return (
+                      <TableCell
+                        key={colKey}
+                        className={cn(
+                          "text-center px-1 py-1",
+                          colKey === UNASSIGNED && "border-l border-muted"
+                        )}
+                      >
+                        <div className="flex items-center justify-center gap-0.5">
+                          <Input
+                            type="number"
+                            min={0}
+                            value={cell?.hoursNeeded ?? 0}
+                            onChange={(e) =>
+                              updateHours(
+                                customer.id,
+                                colKey,
+                                parseFloat(e.target.value) || 0
+                              )
+                            }
+                            className="w-[55px] text-center text-xs h-7"
+                          />
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                className={cn(
+                                  "flex items-center justify-center size-5 rounded shrink-0 transition-colors",
+                                  hasMeta
+                                    ? "text-muted-foreground hover:text-foreground"
+                                    : "text-muted-foreground/30 hover:text-muted-foreground"
+                                )}
+                              >
+                                {hasMeta ? (
+                                  <ConfidenceDot confidence={cell?.confidence ?? null} />
+                                ) : (
+                                  <MessageSquare className="size-3" />
+                                )}
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-56 p-3 space-y-3">
+                              <div className="space-y-1.5">
+                                <p className="text-xs font-medium text-muted-foreground">
+                                  Confidence
+                                </p>
+                                <div className="flex gap-1">
+                                  {confidenceLevels.map((level) => (
+                                    <button
+                                      key={level.value}
+                                      onClick={() =>
+                                        updateMeta(
+                                          customer.id,
+                                          colKey,
+                                          "confidence",
+                                          cell?.confidence === level.value
+                                            ? null
+                                            : level.value
+                                        )
+                                      }
+                                      className={cn(
+                                        "flex-1 text-xs font-medium py-1 rounded border transition-colors",
+                                        cell?.confidence === level.value
+                                          ? level.color
+                                          : "bg-muted/50 text-muted-foreground border-transparent hover:bg-muted"
+                                      )}
+                                    >
+                                      {level.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="space-y-1.5">
+                                <p className="text-xs font-medium text-muted-foreground">
+                                  Notes
+                                </p>
+                                <Textarea
+                                  value={cell?.notes ?? ""}
+                                  onChange={(e) =>
+                                    updateMeta(
+                                      customer.id,
+                                      colKey,
+                                      "notes",
+                                      e.target.value || null
+                                    )
+                                  }
+                                  placeholder="Optional notes..."
+                                  className="text-xs min-h-[60px] h-[60px]"
+                                />
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                      </TableCell>
+                    );
+                  })}
+                  <TableCell className="text-center text-sm font-medium tabular-nums py-1 border-l border-muted">
+                    {rowTotal > 0 ? `${rowTotal}h` : "—"}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+            {/* Totals row */}
+            <TableRow className="border-t-2 font-medium">
+              <TableCell className="sticky left-0 z-10 bg-card text-sm py-1">
+                Total
               </TableCell>
-              <TableCell>
-                <Select
-                  value={forecast.teamMemberId ?? "unassigned"}
-                  onValueChange={(val) =>
-                    updateForecast(
-                      index,
-                      "teamMemberId",
-                      val === "unassigned" ? null : val
-                    )
-                  }
-                >
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="Unassigned" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unassigned">Unassigned</SelectItem>
-                    {teamMembers.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </TableCell>
-              <TableCell>
-                <Input
-                  type="number"
-                  value={forecast.hoursNeeded}
-                  onChange={(e) =>
-                    updateForecast(
-                      index,
-                      "hoursNeeded",
-                      parseFloat(e.target.value) || 0
-                    )
-                  }
-                  className="w-[80px]"
-                  min={0}
-                />
-              </TableCell>
-              <TableCell>
-                <Select
-                  value={forecast.confidence ?? "medium"}
-                  onValueChange={(val) =>
-                    updateForecast(index, "confidence", val)
-                  }
-                >
-                  <SelectTrigger className="w-[110px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
-                  </SelectContent>
-                </Select>
-              </TableCell>
-              <TableCell>
-                <Textarea
-                  value={forecast.notes ?? ""}
-                  onChange={(e) =>
-                    updateForecast(index, "notes", e.target.value || null)
-                  }
-                  className="min-w-[150px] h-9"
-                  placeholder="Optional notes"
-                />
-              </TableCell>
-              <TableCell>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removeForecast(index)}
-                >
-                  <Trash2 className="size-4 text-destructive" />
-                </Button>
+              {colKeys.map((colKey) => {
+                const total = getColTotal(grid, colKey);
+                return (
+                  <TableCell
+                    key={colKey}
+                    className={cn(
+                      "text-center text-sm tabular-nums py-1",
+                      colKey === UNASSIGNED && "border-l border-muted"
+                    )}
+                  >
+                    {total > 0 ? `${total}h` : "—"}
+                  </TableCell>
+                );
+              })}
+              <TableCell className="text-center text-sm font-bold tabular-nums py-1 border-l border-muted">
+                {getGrandTotal(grid) > 0 ? `${getGrandTotal(grid)}h` : "—"}
               </TableCell>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={addForecast}>
-          <Plus className="size-4 mr-1" />
-          Add Forecast
-        </Button>
-        <Button onClick={handleSave} disabled={saving}>
-          <Save className="size-4 mr-1" />
-          {saving ? "Saving..." : "Save Forecasts"}
-        </Button>
+          </TableBody>
+        </table>
       </div>
+
+      <Button onClick={handleSave} disabled={saving}>
+        <Save className="size-4 mr-1" />
+        {saving ? "Saving..." : "Save Forecasts"}
+      </Button>
     </div>
   );
 }

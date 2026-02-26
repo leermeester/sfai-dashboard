@@ -65,8 +65,8 @@ export function ForecastAccuracyChart({ snapshots, confirmedPayments }: Props) {
           }
         />
         <Legend />
-        <Bar dataKey="Forecast" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
-        <Bar dataKey="Actual" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="Forecast" fill="#1b1b1b" radius={[6, 6, 0, 0]} />
+        <Bar dataKey="Actual" fill="#53a945" radius={[6, 6, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );

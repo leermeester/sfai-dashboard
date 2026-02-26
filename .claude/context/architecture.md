@@ -31,7 +31,7 @@ sfai-dashboard/
 │   ├── skills/                 # Local and shared PM-OS skills
 │   └── agents/                 # Agent configurations
 ├── prisma/
-│   └── schema.prisma           # Database schema (7 models)
+│   └── schema.prisma           # Database schema (8 models)
 ├── src/
 │   ├── app/
 │   │   ├── (dashboard)/        # Authenticated route group
@@ -48,6 +48,7 @@ sfai-dashboard/
 │   │       ├── linear/         # Linear workload proxy
 │   │       ├── mercury/        # Mercury account/txn proxy
 │   │       ├── sheets/         # Google Sheets export test
+│   │       ├── calendar/       # Google Calendar sync proxy
 │   │       └── demand-forecast/# Demand forecast CRUD
 │   ├── components/
 │   │   ├── ui/                 # shadcn/ui primitives
@@ -59,6 +60,7 @@ sfai-dashboard/
 │   │   ├── auth.ts             # JWT + bcrypt utilities
 │   │   ├── db.ts               # Prisma singleton
 │   │   ├── sheets.ts           # Google Sheets CSV fetch + parse
+│   │   ├── calendar.ts         # Calendar sheet CSV fetch + meeting sync
 │   │   ├── linear.ts           # Linear GraphQL client
 │   │   ├── mercury.ts          # Mercury REST client
 │   │   └── utils.ts            # General utilities
@@ -101,6 +103,16 @@ Manual input (Settings)
     → Capacity vs Demand visualization
 ```
 
+### Calendar / Meeting Pipeline
+```
+Google Calendar (DJ + Arthur)
+  → Google Apps Script (daily trigger)
+    → Google Sheet (calendar events with attendee emails)
+      → /api/cron/calendar (daily) or /api/calendar (manual)
+        → syncMeetings() matches attendee email domains → Customer.emailDomain
+          → ClientMeeting table (team member × customer × duration)
+```
+
 ### Margin Calculation
 ```
 SalesSnapshot (revenue)
@@ -132,14 +144,26 @@ Middleware (every request):
 ### Google Sheets (`src/lib/sheets.ts`)
 - Fetches CSV export via public URL (requires "Anyone with link" access)
 - Custom CSV parser handles quoted fields
-- `parseRevenueMatrix()` extracts customer x month grid
-- Month formats supported: `YYYY-MM`, `Jan 2026`, `MM/YYYY`
+- `parseRevenueMatrix()` finds the "Customers" section header, then extracts customer x month revenue grid
+- Month headers support: `YYYY-MM`, `Jan 2026`, `MM/YYYY`, and bare month names (year inferred from position, rolling over after December)
+- Section terminators ("SFAI", "Product Engineers", etc.) stop parsing to avoid picking up team capacity data as customers
 
 ### Mercury (`src/lib/mercury.ts`)
 - REST API at `https://api.mercury.com/api/v1`
 - Bearer token auth
 - `syncTransactions()` pulls last 90 days, matches counterparty to customers
 - Auto-reconciles on name match
+
+### Google Calendar (`src/lib/calendar.ts`)
+- Reads ALL calendar events from a Google Sheet populated by Apps Script
+- Same CSV export pattern as `sheets.ts` (public link, no OAuth)
+- `syncMeetings()` categorizes each meeting:
+  - **client** — external domain matches `Customer.emailDomain`
+  - **sales** — external attendees present but no customer match (prospects)
+  - **internal** — all attendees are @sfaiconsultants.com
+- Creates one `ClientMeeting` per (event, team member) pair
+- Team members matched by `TeamMember.email`
+- Returns unmatched domains and per-type counts for visibility
 
 ### Linear (`src/lib/linear.ts`)
 - GraphQL API at `https://api.linear.app/graphql`
