@@ -1,0 +1,52 @@
+import { cookies } from "next/headers";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
+
+const JWT_SECRET = process.env.AUTH_JWT_SECRET || "dev-secret-change-me";
+const COOKIE_NAME = "sfai-session";
+
+export async function verifyPassword(password: string): Promise<boolean> {
+  const hash = process.env.AUTH_PASSWORD_HASH;
+  if (!hash) return false;
+  return bcrypt.compare(password, hash);
+}
+
+export async function createSession(): Promise<string> {
+  const token = jwt.sign({ authenticated: true }, JWT_SECRET, {
+    expiresIn: "30d",
+  });
+  return token;
+}
+
+export async function verifySession(): Promise<boolean> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(COOKIE_NAME)?.value;
+  if (!token) return false;
+
+  try {
+    jwt.verify(token, JWT_SECRET);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function setSessionCookie(token: string) {
+  const cookieStore = await cookies();
+  cookieStore.set(COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: 60 * 60 * 24 * 30, // 30 days
+    path: "/",
+  });
+}
+
+export async function clearSessionCookie() {
+  const cookieStore = await cookies();
+  cookieStore.delete(COOKIE_NAME);
+}
+
+export async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, 10);
+}

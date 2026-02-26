@@ -1,0 +1,126 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("POSTGRES_PRISMA_URL")
+  directUrl = env("POSTGRES_URL_NON_POOLING")
+}
+
+model TeamMember {
+  id           String   @id @default(cuid())
+  name         String
+  email        String?  @unique
+  role         String   // "cofounder", "engineer", "freelance"
+  hourlyRate   Float?
+  monthlyCost  Float?
+  isActive     Boolean  @default(true)
+  linearUserId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  allocations     TimeAllocation[]
+  demandForecasts DemandForecast[]
+}
+
+model Customer {
+  id              String   @id @default(cuid())
+  displayName     String
+  spreadsheetName String?
+  bankName        String?
+  linearProjectId String?
+  email           String?
+  aliases         String[]
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  salesSnapshots  SalesSnapshot[]
+  transactions    BankTransaction[]
+  allocations     TimeAllocation[]
+  demandForecasts DemandForecast[]
+  margins         MonthlyMargin[]
+}
+
+model SalesSnapshot {
+  id           String   @id @default(cuid())
+  customerId   String
+  customer     Customer @relation(fields: [customerId], references: [id])
+  month        String   // "2026-01"
+  snapshotDate DateTime
+  amount       Float
+  currency     String   @default("USD")
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  @@index([customerId, month])
+  @@index([snapshotDate])
+}
+
+model BankTransaction {
+  id               String    @id @default(cuid())
+  mercuryId        String    @unique
+  customerId       String?
+  customer         Customer? @relation(fields: [customerId], references: [id])
+  amount           Float
+  currency         String    @default("USD")
+  description      String
+  counterpartyName String?
+  status           String
+  postedAt         DateTime?
+  createdAt        DateTime  @default(now())
+  isReconciled     Boolean   @default(false)
+  reconciledMonth  String?
+
+  @@index([customerId])
+  @@index([postedAt])
+}
+
+model DemandForecast {
+  id           String      @id @default(cuid())
+  customerId   String
+  customer     Customer    @relation(fields: [customerId], references: [id])
+  teamMemberId String?
+  teamMember   TeamMember? @relation(fields: [teamMemberId], references: [id])
+  month        String
+  forecastType String      // "short_term" or "long_term"
+  hoursNeeded  Float
+  confidence   String?     // "high", "medium", "low"
+  notes        String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([customerId, month])
+  @@index([teamMemberId, month])
+}
+
+model TimeAllocation {
+  id           String     @id @default(cuid())
+  teamMemberId String
+  teamMember   TeamMember @relation(fields: [teamMemberId], references: [id])
+  customerId   String
+  customer     Customer   @relation(fields: [customerId], references: [id])
+  month        String
+  percentage   Float
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([teamMemberId, customerId, month])
+  @@index([month])
+}
+
+model MonthlyMargin {
+  id              String   @id @default(cuid())
+  customerId      String
+  customer        Customer @relation(fields: [customerId], references: [id])
+  month           String
+  revenue         Float
+  engineeringCost Float
+  margin          Float
+  marginPercent   Float
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([customerId, month])
+}
