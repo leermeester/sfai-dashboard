@@ -8,8 +8,10 @@ const SECRET = new TextEncoder().encode(
 const COOKIE_NAME = "sfai-session";
 
 export async function verifyPassword(password: string): Promise<boolean> {
-  const hash = process.env.AUTH_PASSWORD_HASH;
-  if (!hash) return false;
+  const raw = process.env.AUTH_PASSWORD_HASH;
+  if (!raw) return false;
+  // Support base64-encoded hashes (needed for Vercel, which interprets $ in env vars)
+  const hash = raw.startsWith("$2") ? raw : Buffer.from(raw, "base64").toString("utf-8");
   return bcrypt.compare(password, hash);
 }
 
