@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import jwt from "jsonwebtoken";
+import { jwtVerify } from "jose";
 
-const JWT_SECRET = process.env.AUTH_JWT_SECRET || "dev-secret-change-me";
+function getSecret() {
+  return new TextEncoder().encode(
+    process.env.AUTH_JWT_SECRET || "dev-secret-change-me"
+  );
+}
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Allow login page, API auth routes, and static assets
@@ -33,7 +37,7 @@ export function middleware(request: NextRequest) {
   }
 
   try {
-    jwt.verify(token, JWT_SECRET);
+    await jwtVerify(token, getSecret());
     return NextResponse.next();
   } catch {
     return NextResponse.redirect(new URL("/login", request.url));

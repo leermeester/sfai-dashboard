@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { verifyPassword, createSession, setSessionCookie } from "@/lib/auth";
+import { verifyPassword, createSession } from "@/lib/auth";
 
 export async function POST(request: Request) {
   const { password } = await request.json();
@@ -14,13 +14,21 @@ export async function POST(request: Request) {
   }
 
   const token = await createSession();
-  await setSessionCookie(token);
 
-  return NextResponse.json({ success: true });
+  const response = NextResponse.json({ success: true });
+  response.cookies.set("sfai-session", token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: 60 * 60 * 24 * 30, // 30 days
+    path: "/",
+  });
+
+  return response;
 }
 
 export async function DELETE() {
-  const { clearSessionCookie } = await import("@/lib/auth");
-  await clearSessionCookie();
-  return NextResponse.json({ success: true });
+  const response = NextResponse.json({ success: true });
+  response.cookies.delete("sfai-session");
+  return response;
 }

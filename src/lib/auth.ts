@@ -1,8 +1,10 @@
 import { cookies } from "next/headers";
-import jwt from "jsonwebtoken";
+import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
 
-const JWT_SECRET = process.env.AUTH_JWT_SECRET || "dev-secret-change-me";
+const SECRET = new TextEncoder().encode(
+  process.env.AUTH_JWT_SECRET || "dev-secret-change-me"
+);
 const COOKIE_NAME = "sfai-session";
 
 export async function verifyPassword(password: string): Promise<boolean> {
@@ -12,9 +14,10 @@ export async function verifyPassword(password: string): Promise<boolean> {
 }
 
 export async function createSession(): Promise<string> {
-  const token = jwt.sign({ authenticated: true }, JWT_SECRET, {
-    expiresIn: "30d",
-  });
+  const token = await new SignJWT({ authenticated: true })
+    .setProtectedHeader({ alg: "HS256" })
+    .setExpirationTime("30d")
+    .sign(SECRET);
   return token;
 }
 
@@ -24,7 +27,7 @@ export async function verifySession(): Promise<boolean> {
   if (!token) return false;
 
   try {
-    jwt.verify(token, JWT_SECRET);
+    await jwtVerify(token, SECRET);
     return true;
   } catch {
     return false;
@@ -45,8 +48,4 @@ export async function setSessionCookie(token: string) {
 export async function clearSessionCookie() {
   const cookieStore = await cookies();
   cookieStore.delete(COOKIE_NAME);
-}
-
-export async function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, 10);
 }

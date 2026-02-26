@@ -1,15 +1,3 @@
-import { google } from "googleapis";
-
-function getAuth() {
-  return new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-    },
-    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
-  });
-}
-
 export interface RevenueCell {
   customer: string;
   month: string;
@@ -17,22 +5,61 @@ export interface RevenueCell {
 }
 
 export async function getSheetData(): Promise<RevenueCell[]> {
-  const auth = getAuth();
-  const sheets = google.sheets({ version: "v4", auth });
   const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
-
   if (!spreadsheetId) throw new Error("GOOGLE_SPREADSHEET_ID not set");
 
-  // Read the full first sheet
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: "A1:Z100", // Wide enough to capture all months and customers
-  });
+  // Fetch CSV export directly (requires "Anyone with the link" access)
+  const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Google Sheets fetch failed: ${res.status}`);
 
-  const rows = res.data.values;
-  if (!rows || rows.length < 2) return [];
+  const csv = await res.text();
+  const rows = parseCsv(csv);
+  if (rows.length < 2) return [];
 
   return parseRevenueMatrix(rows);
+}
+
+function parseCsv(csv: string): string[][] {
+  const rows: string[][] = [];
+  let current = "";
+  let inQuotes = false;
+  let row: string[] = [];
+
+  for (let i = 0; i < csv.length; i++) {
+    const ch = csv[i];
+    if (inQuotes) {
+      if (ch === '"' && csv[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        current += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ",") {
+        row.push(current);
+        current = "";
+      } else if (ch === "\n" || (ch === "\r" && csv[i + 1] === "\n")) {
+        row.push(current);
+        current = "";
+        rows.push(row);
+        row = [];
+        if (ch === "\r") i++;
+      } else {
+        current += ch;
+      }
+    }
+  }
+  if (current || row.length > 0) {
+    row.push(current);
+    rows.push(row);
+  }
+
+  return rows;
 }
 
 export function parseRevenueMatrix(rows: string[][]): RevenueCell[] {
@@ -112,7 +139,7 @@ function parseAmount(value: string): number | null {
 export async function testConnection(): Promise<boolean> {
   try {
     const data = await getSheetData();
-    return data.length >= 0; // Even empty is OK if connection works
+    return data.length >= 0;
   } catch {
     return false;
   }
@@ -124,10 +151,9 @@ export async function createSnapshot(db: import("@prisma/client").PrismaClient) 
   const now = new Date();
 
   let created = 0;
-  let unmatched: string[] = [];
+  const unmatched: string[] = [];
 
   for (const cell of cells) {
-    // Match sheet customer name to a Customer record
     const customer = customers.find((c) => {
       const sheetName = cell.customer.toLowerCase();
       if (c.spreadsheetName?.toLowerCase() === sheetName) return true;
