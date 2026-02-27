@@ -12,6 +12,7 @@ export const customerSchema = z.object({
   linearProjectId: z.string().nullable().optional(),
   email: z.string().email().nullable().optional(),
   aliases: z.array(z.string()).default([]),
+  primaryFounderId: z.string().nullable().optional(),
   isActive: z.boolean().default(true),
 });
 

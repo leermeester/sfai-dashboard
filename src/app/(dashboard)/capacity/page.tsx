@@ -15,11 +15,24 @@ import { TeamRosterTable } from "@/components/tables/team-roster";
 import { MeetingHoursTable } from "@/components/tables/meeting-hours-table";
 import { MeetingSummaryTable } from "@/components/tables/meeting-summary-table";
 import { CalendarSyncButton } from "@/components/calendar-sync-button";
+import { MonthPicker } from "@/components/month-picker";
+import { FounderCapacityBars } from "@/components/founder-capacity-bars";
+import { FounderPortfolioTable } from "@/components/tables/founder-portfolio-table";
+import { ChurnForecastTable } from "@/components/tables/churn-forecast-table";
+import { NewClientsSummary } from "@/components/new-clients-summary";
 import { getCurrentMonth } from "@/lib/utils";
 import { getCurrentWeekStart, getRollingWeeks, formatWeekLabel } from "@/lib/capacity";
+import { computeFounderPortfolio } from "@/lib/founder-capacity";
 import { addWeeks } from "date-fns";
 
-export default async function CapacityPage() {
+export default async function CapacityPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ month?: string }>;
+}) {
+  const params = await searchParams;
+  const selectedMonth = params.month ?? getCurrentMonth();
+
   const teamMembers = await db.teamMember.findMany({
     where: { isActive: true },
     orderBy: { name: "asc" },
@@ -109,6 +122,9 @@ export default async function CapacityPage() {
     meetingCount: row._count._all,
   }));
 
+  // Founder capacity data
+  const founderData = await computeFounderPortfolio(selectedMonth);
+
   return (
     <div className="space-y-6">
       <div>
@@ -119,6 +135,62 @@ export default async function CapacityPage() {
           Map team capacity against demand.
         </p>
       </div>
+
+      {/* Founder Capacity & Portfolio */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Founder Capacity</CardTitle>
+              <CardDescription>
+                Client slots and portfolio overview.
+              </CardDescription>
+            </div>
+            <MonthPicker currentMonth={selectedMonth} basePath="/capacity" />
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <NewClientsSummary
+            founders={founderData.founders.map((f) => ({
+              name: f.name,
+              activeClients: f.activeClientCount,
+              cap: f.cap,
+            }))}
+            slotsAvailable={founderData.summary.slotsAvailable}
+            revenueAtRisk={founderData.summary.revenueAtRisk}
+            combinedCap={founderData.combined.cap}
+            combinedActive={founderData.combined.activeClientCount}
+          />
+
+          <FounderCapacityBars
+            founders={founderData.founders.map((f) => ({
+              name: f.name,
+              activeClients: f.activeClientCount,
+              cap: f.cap,
+            }))}
+            combined={{
+              activeClients: founderData.combined.activeClientCount,
+              cap: founderData.combined.cap,
+            }}
+          />
+
+          <div>
+            <h4 className="text-sm font-medium text-muted-foreground mb-3">
+              Client Portfolio
+            </h4>
+            <FounderPortfolioTable clients={founderData.allClients} />
+          </div>
+
+          {founderData.churn.length > 0 && (
+            <div>
+              <h4 className="text-sm font-medium text-muted-foreground mb-3">
+                Churn Forecast
+              </h4>
+              <ChurnForecastTable churnCandidates={founderData.churn} />
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Capacity vs Demand Chart */}
       <Card>
