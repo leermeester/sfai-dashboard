@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -71,6 +72,7 @@ export function DomainMappingForm({
     };
   }
 
+  const router = useRouter();
   const [mappings, setMappings] =
     useState<Record<string, MappingState>>(initialState);
   const [focusedIndex, setFocusedIndex] = useState(0);
@@ -185,7 +187,7 @@ export function DomainMappingForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mappings: toSave }),
       });
-      window.location.reload();
+      router.refresh();
     } finally {
       setSaving(false);
     }

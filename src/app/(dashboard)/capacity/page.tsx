@@ -16,6 +16,8 @@ import { MeetingHoursTable } from "@/components/tables/meeting-hours-table";
 import { MeetingSummaryTable } from "@/components/tables/meeting-summary-table";
 import { CalendarSyncButton } from "@/components/calendar-sync-button";
 import { getCurrentMonth } from "@/lib/utils";
+import { getCurrentWeekStart, getRollingWeeks, formatWeekLabel } from "@/lib/capacity";
+import { addWeeks } from "date-fns";
 
 export default async function CapacityPage() {
   const teamMembers = await db.teamMember.findMany({
@@ -28,11 +30,21 @@ export default async function CapacityPage() {
     orderBy: { displayName: "asc" },
   });
 
-  const currentMonth = getCurrentMonth();
+  const currentWeek = getCurrentWeekStart();
+  const nextWeek = addWeeks(currentWeek, 1);
+  const rollingWeeks = getRollingWeeks(4);
+
   const forecasts = await db.demandForecast.findMany({
-    where: { month: currentMonth },
+    where: {
+      weekStart: { in: rollingWeeks },
+    },
     include: { customer: true, teamMember: true },
   });
+
+  const thisWeekLabel = formatWeekLabel(currentWeek);
+  const nextWeekLabel = formatWeekLabel(nextWeek);
+
+  const currentMonth = getCurrentMonth();
 
   // Fetch meeting hours for current month, grouped by type
   const monthStart = new Date(`${currentMonth}-01`);
@@ -111,9 +123,9 @@ export default async function CapacityPage() {
       {/* Capacity vs Demand Chart */}
       <Card>
         <CardHeader>
-          <CardTitle>Planned Time</CardTitle>
+          <CardTitle>Planned Tickets</CardTitle>
           <CardDescription>
-            Forecasted hours per team member, by customer.
+            Forecasted tickets per team member, by customer.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -125,9 +137,11 @@ export default async function CapacityPage() {
             forecasts={forecasts.map((f) => ({
               teamMemberId: f.teamMemberId,
               customerName: f.customer.displayName,
-              hoursNeeded: f.hoursNeeded,
-              forecastType: f.forecastType,
+              ticketsNeeded: f.ticketsNeeded ?? f.hoursNeeded,
+              weekStart: f.weekStart.toISOString(),
             }))}
+            currentWeek={currentWeek.toISOString()}
+            nextWeek={nextWeek.toISOString()}
           />
         </CardContent>
       </Card>
@@ -180,18 +194,18 @@ export default async function CapacityPage() {
         <CardHeader>
           <CardTitle>Demand Forecast</CardTitle>
           <CardDescription>
-            Estimate hours needed per customer.
+            Estimate tickets needed per customer.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="this_week">
             <TabsList>
-              <TabsTrigger value="this_week">This Week</TabsTrigger>
-              <TabsTrigger value="next_week">Next Week</TabsTrigger>
+              <TabsTrigger value="this_week">{thisWeekLabel}</TabsTrigger>
+              <TabsTrigger value="next_week">{nextWeekLabel}</TabsTrigger>
             </TabsList>
             <TabsContent value="this_week" className="mt-4">
               <DemandForecastForm
-                forecastType="this_week"
+                weekStart={currentWeek.toISOString()}
                 customers={customers.map((c) => ({
                   id: c.id,
                   displayName: c.displayName,
@@ -201,12 +215,12 @@ export default async function CapacityPage() {
                   name: m.name,
                 }))}
                 existingForecasts={forecasts
-                  .filter((f) => f.forecastType === "this_week")
+                  .filter((f) => f.weekStart.getTime() === currentWeek.getTime())
                   .map((f) => ({
                     id: f.id,
                     customerId: f.customerId,
                     teamMemberId: f.teamMemberId,
-                    hoursNeeded: f.hoursNeeded,
+                    ticketsNeeded: f.ticketsNeeded ?? f.hoursNeeded,
                     confidence: f.confidence,
                     notes: f.notes,
                   }))}
@@ -214,7 +228,7 @@ export default async function CapacityPage() {
             </TabsContent>
             <TabsContent value="next_week" className="mt-4">
               <DemandForecastForm
-                forecastType="next_week"
+                weekStart={nextWeek.toISOString()}
                 customers={customers.map((c) => ({
                   id: c.id,
                   displayName: c.displayName,
@@ -224,13 +238,17 @@ export default async function CapacityPage() {
                   name: m.name,
                 }))}
                 existingForecasts={(() => {
-                  const longTerm = forecasts.filter((f) => f.forecastType === "next_week");
-                  const source = longTerm.length > 0 ? longTerm : forecasts.filter((f) => f.forecastType === "this_week");
+                  const nextWeekForecasts = forecasts.filter(
+                    (f) => f.weekStart.getTime() === nextWeek.getTime()
+                  );
+                  const source = nextWeekForecasts.length > 0
+                    ? nextWeekForecasts
+                    : forecasts.filter((f) => f.weekStart.getTime() === currentWeek.getTime());
                   return source.map((f) => ({
                     id: f.id,
                     customerId: f.customerId,
                     teamMemberId: f.teamMemberId,
-                    hoursNeeded: f.hoursNeeded,
+                    ticketsNeeded: f.ticketsNeeded ?? f.hoursNeeded,
                     confidence: f.confidence,
                     notes: f.notes,
                   }));

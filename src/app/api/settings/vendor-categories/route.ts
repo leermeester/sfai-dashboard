@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { recalculateMonthlyCosts } from "@/lib/mercury";
+import { validateBody, vendorRuleSchema } from "@/lib/validations";
 
 export async function GET() {
   const rules = await db.vendorCategoryRule.findMany({
@@ -10,7 +12,12 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  const { rules } = await request.json();
+  const body = await request.json();
+  const parsed = validateBody(z.object({ rules: z.array(vendorRuleSchema) }), body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
+  const { rules } = parsed.data;
 
   const existing = await db.vendorCategoryRule.findMany({ select: { id: true } });
   const existingIds = new Set(existing.map((r) => r.id));

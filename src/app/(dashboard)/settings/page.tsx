@@ -12,7 +12,6 @@ import { db } from "@/lib/db";
 import { CustomerMappingForm } from "@/components/forms/customer-mapping-form";
 import { TeamConfigForm } from "@/components/forms/team-config-form";
 import { ApiStatusPanel } from "@/components/forms/api-status-panel";
-import { VendorCategoryForm } from "@/components/forms/vendor-category-form";
 import { DomainMappingForm } from "@/components/forms/domain-mapping-form";
 
 export default async function SettingsPage({
@@ -28,16 +27,6 @@ export default async function SettingsPage({
 
   const teamMembers = await db.teamMember.findMany({
     orderBy: { name: "asc" },
-  });
-
-  const vendorCategoryRules = await db.vendorCategoryRule.findMany({
-    orderBy: { vendorPattern: "asc" },
-  });
-
-  const uncategorizedOutgoing = await db.bankTransaction.findMany({
-    where: { direction: "outgoing", costCategory: null },
-    orderBy: { postedAt: "desc" },
-    take: 50,
   });
 
   // Domain mapping data: count external domains from synced meetings
@@ -92,7 +81,6 @@ export default async function SettingsPage({
           <TabsTrigger value="team">Team</TabsTrigger>
           <TabsTrigger value="domains">Domains</TabsTrigger>
           <TabsTrigger value="integrations">Integrations</TabsTrigger>
-          <TabsTrigger value="costs">Cost Categories</TabsTrigger>
         </TabsList>
 
         <TabsContent value="customers" className="mt-4">
@@ -141,6 +129,7 @@ export default async function SettingsPage({
                   monthlyCost: m.monthlyCost,
                   isActive: m.isActive,
                   linearUserId: m.linearUserId,
+                  mercuryCounterparty: m.mercuryCounterparty,
                 }))}
               />
             </CardContent>
@@ -180,34 +169,6 @@ export default async function SettingsPage({
           <ApiStatusPanel />
         </TabsContent>
 
-        <TabsContent value="costs" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Vendor Category Mapping</CardTitle>
-              <CardDescription>
-                Map bank transaction counterparties to cost categories (Labor,
-                Software, Other) for expense tracking.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <VendorCategoryForm
-                rules={vendorCategoryRules.map((r) => ({
-                  id: r.id,
-                  vendorPattern: r.vendorPattern,
-                  category: r.category,
-                  displayName: r.displayName,
-                }))}
-                uncategorizedTransactions={uncategorizedOutgoing.map((t) => ({
-                  id: t.id,
-                  amount: t.amount,
-                  description: t.description,
-                  counterpartyName: t.counterpartyName,
-                  postedAt: t.postedAt?.toISOString() ?? null,
-                }))}
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
     </div>
   );

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { db } from "@/lib/db";
 import { formatCurrency, formatMonth, getCurrentMonth } from "@/lib/utils";
+import { getCurrentWeekStart } from "@/lib/capacity";
 import { RevenueProfitChart } from "@/components/charts/revenue-profit-chart";
 import { ClientMixChart } from "@/components/charts/client-mix-chart";
 import { CostRingChart } from "@/components/charts/cost-ring-chart";
@@ -102,7 +103,7 @@ export default async function OverviewPage({
       orderBy: { name: "asc" },
     }),
     db.demandForecast.findMany({
-      where: { month: selectedMonth, forecastType: "short_term" },
+      where: { weekStart: getCurrentWeekStart() },
       include: { customer: true, teamMember: true },
     }),
     db.bankTransaction.findFirst({

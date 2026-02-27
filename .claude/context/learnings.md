@@ -31,6 +31,17 @@
 - Uses API key auth (not OAuth) — simpler but scoped to a single user
 - Workload calculation groups active issues (started + unstarted) by assignee
 - Issue estimates (`estimate` field) are used as "points" for capacity tracking
+- **Full backlog ≠ this week's demand**: counting ALL open tickets produces wildly inflated numbers (e.g. 268h for one engineer). Filter to tickets created within last 30 days for realistic demand.
+- **Flat hours/ticket heuristic was wrong**: 4h/ticket produced meaningless estimates. Individual throughput rates (tickets/week) derived from actual completion data are far more accurate.
+
+## Capacity Model (Ticket-Based)
+
+- Capacity measured in **tickets/week**, not hours
+- `ticketsPerWeek = completedTicketsLastMonth / (billedHoursLastMonth / weeklyHours)` — accounts for part-time and skill differences
+- `EngineerThroughput` stores monthly billed hours (manual input) + completed tickets (auto from Linear)
+- Demand: only tickets with `state: started|unstarted` AND `createdAt` within 30 days
+- `DemandForecast.ticketsNeeded` is the primary input; `hoursNeeded` kept for backwards compatibility
+- Dashboard, CLI, and API all use tickets as the unit — no hours conversion anywhere in the capacity pipeline
 
 ## Authentication
 
@@ -51,6 +62,15 @@
 - Next.js 16 with Turbopack for dev server (`next dev --turbopack`)
 - `build` script runs `prisma generate` before `next build`
 - shadcn/ui components in `src/components/ui/` — use `npx shadcn@latest add <component>` to add new ones
+
+## Testing
+
+- **Vitest 2.x required** — Vitest 4.x / Vite 7.x require Node >= 20 but the project runs on Node 18.18.0; pinned to `vitest@^2` and `vite-tsconfig-paths@^4` for compatibility
+- `vite-tsconfig-paths` plugin enables `@/` path alias resolution in test files (matches tsconfig `paths`)
+- Tests live in `src/lib/__tests__/` and follow the pattern `*.test.ts`
+- **matching.ts alias overwrite bug**: in `matchCustomer()`, the alias check at line 130-136 sets `matchedOn` even when `Math.max(bestScore, 93)` doesn't actually change `bestScore`. This means a bankName match at 95 can have its `matchedOn` string overwritten by an alias check. Tests verify confidence value rather than `matchedOn` string for bankName matches.
+- **classifyDomain heuristic threshold**: the domain-to-company heuristic uses `score > 50` (strict greater-than). For multi-word company names like "TechFlow Solutions", `tokenOverlap("techflow", "TechFlow Solutions")` returns exactly 50 (1 of 2 tokens), which does NOT pass the threshold. Use single-word company names in tests to verify this heuristic.
+- **parseCsv empty input**: `parseCsv("")` returns `[]` not `[[""]]` — the final guard `if (current || row.length > 0)` is false when both `current` is empty string and `row` is empty array.
 
 ## General Patterns
 

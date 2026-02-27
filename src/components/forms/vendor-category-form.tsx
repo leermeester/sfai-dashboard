@@ -27,6 +27,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Plus, Save, Trash2, Check, Loader2 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 
@@ -57,6 +67,7 @@ export function VendorCategoryForm({
   const router = useRouter();
   const [rules, setRules] = useState(initialRules);
   const [saving, setSaving] = useState(false);
+  const [deleteIndex, setDeleteIndex] = useState<number | null>(null);
   const [categoryAssignments, setCategoryAssignments] = useState<
     Record<string, string>
   >({});
@@ -186,7 +197,7 @@ export function VendorCategoryForm({
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => removeRule(index)}
+                      onClick={() => setDeleteIndex(index)}
                     >
                       <Trash2 className="size-4 text-destructive" />
                     </Button>
@@ -301,6 +312,30 @@ export function VendorCategoryForm({
           </CardContent>
         </Card>
       )}
+
+      <AlertDialog open={deleteIndex !== null} onOpenChange={(open) => !open && setDeleteIndex(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove vendor rule?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteIndex !== null && rules[deleteIndex]
+                ? `The rule for "${rules[deleteIndex].vendorPattern || "unnamed pattern"}" will be removed. Save to persist the change.`
+                : "This vendor rule will be removed."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deleteIndex !== null) removeRule(deleteIndex);
+                setDeleteIndex(null);
+              }}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

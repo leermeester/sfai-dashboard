@@ -1,4 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
+import { fetchWithRetry } from "./fetch-with-retry";
+import type { Logger } from "./logger";
 
 export interface CalendarEvent {
   eventId: string;
@@ -15,12 +17,12 @@ export interface CalendarEvent {
 /**
  * Fetches calendar event data from the Google Sheet exported by the Apps Script.
  */
-export async function getCalendarSheetData(): Promise<CalendarEvent[]> {
+export async function getCalendarSheetData(logger?: Logger): Promise<CalendarEvent[]> {
   const sheetId = process.env.GOOGLE_CALENDAR_SHEET_ID;
   if (!sheetId) throw new Error("GOOGLE_CALENDAR_SHEET_ID not set");
 
   const url = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
-  const res = await fetch(url);
+  const res = await fetchWithRetry(url, undefined, { logger });
   if (!res.ok)
     throw new Error(`Calendar sheet fetch failed: ${res.status}`);
 
@@ -104,8 +106,11 @@ export function parseCalendarEvents(rows: string[][]): CalendarEvent[] {
  *   - "sales"    — external attendees present but no customer match (prospects)
  *   - "internal" — all attendees are @sfaiconsultants.com
  */
-export async function syncMeetings(db: PrismaClient) {
-  const events = await getCalendarSheetData();
+export async function syncMeetings(db: PrismaClient, logger?: Logger) {
+  const startTime = Date.now();
+  logger?.info("Calendar sync started");
+  const events = await getCalendarSheetData(logger);
+  logger?.info("Calendar events fetched", { count: events.length });
 
   const customers = await db.customer.findMany({
     where: { isActive: true },
@@ -147,11 +152,21 @@ export async function syncMeetings(db: PrismaClient) {
   }
 
   let created = 0;
-  let updated = 0;
+  const updated = 0;
   let skippedNoTeamMember = 0;
   let skippedIgnored = 0;
   const counts = { client: 0, sales: 0, internal: 0 };
   const unmatchedDomains = new Set<string>();
+  const meetingUpserts: { eventId: string; data: {
+    meetingType: string;
+    customerId: string | null;
+    teamMemberId: string;
+    date: Date;
+    durationMinutes: number;
+    title: string;
+    attendeeEmails: string[];
+    externalDomains: string[];
+  } }[] = [];
 
   for (const event of events) {
     // Find team member by organizer email
@@ -221,38 +236,55 @@ export async function syncMeetings(db: PrismaClient) {
 
     counts[meetingType]++;
 
-    // Upsert into ClientMeeting
-    const existing = await db.clientMeeting.findUnique({
-      where: { googleEventId: event.eventId },
+    meetingUpserts.push({
+      eventId: event.eventId,
+      data: {
+        meetingType,
+        customerId,
+        teamMemberId,
+        date: new Date(event.date),
+        durationMinutes: event.durationMinutes,
+        title: event.title,
+        attendeeEmails: event.attendeeEmails,
+        externalDomains: event.externalDomains,
+      },
     });
-
-    const data = {
-      meetingType,
-      customerId,
-      teamMemberId,
-      date: new Date(event.date),
-      durationMinutes: event.durationMinutes,
-      title: event.title,
-      attendeeEmails: event.attendeeEmails,
-      externalDomains: event.externalDomains,
-    };
-
-    if (existing) {
-      await db.clientMeeting.update({
-        where: { googleEventId: event.eventId },
-        data: { ...data, syncedAt: new Date() },
-      });
-      updated++;
-    } else {
-      await db.clientMeeting.create({
-        data: {
-          googleEventId: event.eventId,
-          ...data,
-        },
-      });
-      created++;
-    }
   }
+
+  // Batch upsert meetings in groups of 50
+  const BATCH_SIZE = 50;
+  for (let i = 0; i < meetingUpserts.length; i += BATCH_SIZE) {
+    const batch = meetingUpserts.slice(i, i + BATCH_SIZE);
+    await db.$transaction(
+      batch.map(({ eventId, data }) =>
+        db.clientMeeting.upsert({
+          where: { googleEventId: eventId },
+          create: { googleEventId: eventId, ...data },
+          update: { ...data, syncedAt: new Date() },
+        })
+      )
+    );
+    created += batch.length; // approximate — upserts may be creates or updates
+  }
+
+  // Unmatched domains are logged but not queued for resolution.
+  // Users classify domains via Settings > Domains.
+  if (unmatchedDomains.size > 0) {
+    logger?.warn("Unmatched calendar domains — classify in Settings > Domains", {
+      domains: Array.from(unmatchedDomains),
+    });
+  }
+
+  logger?.info("Calendar sync completed", {
+    total: events.length,
+    created,
+    updated,
+    skippedNoTeamMember,
+    skippedIgnored,
+    counts,
+    unmatchedDomains: unmatchedDomains.size,
+    durationMs: Date.now() - startTime,
+  });
 
   return {
     total: events.length,

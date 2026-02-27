@@ -8,11 +8,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { db } from "@/lib/db";
-import { TimeAllocationForm } from "@/components/forms/time-allocation-form";
 import { MarginTable } from "@/components/tables/margin-table";
+import { EngineerCostMatrix } from "@/components/tables/engineer-cost-matrix";
 import { MarginTrendChart } from "@/components/charts/margin-trend-chart";
-import { getCurrentMonth, formatCurrency, getWeeksInMonth } from "@/lib/utils";
-import { syncLinearAllocations } from "@/lib/linear-sync";
+import { getCurrentMonth, formatCurrency } from "@/lib/utils";
 import { MonthPicker } from "@/components/month-picker";
 
 export default async function MarginsPage({
@@ -21,52 +20,29 @@ export default async function MarginsPage({
   searchParams: Promise<{ month?: string }>;
 }) {
   const params = await searchParams;
-  const teamMembers = await db.teamMember.findMany({
-    where: { isActive: true },
-    orderBy: { name: "asc" },
-  });
-
-  const customers = await db.customer.findMany({
-    where: { isActive: true },
-    orderBy: { displayName: "asc" },
-  });
-
   const selectedMonth = params.month ?? getCurrentMonth();
-  const weeks = getWeeksInMonth(selectedMonth);
 
-  // Auto-sync Linear data on page load (uses daily cache)
-  let syncStatus = {
-    synced: false,
-    syncedAt: null as string | null,
-    error: null as string | null,
-    issueCount: 0,
-    unmappedCount: 0,
-  };
-  try {
-    const result = await syncLinearAllocations(selectedMonth, false);
-    const cache = await db.linearSyncCache.findUnique({
+  const [teamMembers, customers, margins, costAllocations] = await Promise.all([
+    db.teamMember.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+    }),
+    db.customer.findMany({
+      where: { isActive: true },
+      orderBy: { displayName: "asc" },
+    }),
+    db.monthlyMargin.findMany({
+      include: { customer: true },
+      orderBy: [{ month: "desc" }],
+    }),
+    db.engineerCostAllocation.findMany({
       where: { month: selectedMonth },
-    });
-    syncStatus = {
-      synced: !!cache,
-      syncedAt: cache?.syncedAt.toISOString() ?? null,
-      error: null,
-      issueCount: result.issueCount,
-      unmappedCount: result.unmappedCount,
-    };
-  } catch (e) {
-    syncStatus.error = String(e);
-  }
-
-  const allocations = await db.timeAllocation.findMany({
-    where: { month: selectedMonth },
-    include: { teamMember: true, customer: true },
-  });
-
-  const margins = await db.monthlyMargin.findMany({
-    include: { customer: true },
-    orderBy: [{ month: "desc" }],
-  });
+      include: {
+        teamMember: { select: { id: true, name: true } },
+        customer: { select: { id: true, displayName: true } },
+      },
+    }),
+  ]);
 
   // Calculate totals for current month
   const currentMargins = margins.filter((m) => m.month === selectedMonth);
@@ -78,6 +54,32 @@ export default async function MarginsPage({
   const totalMargin = totalRevenue - totalCost;
   const avgMarginPercent =
     totalRevenue > 0 ? (totalMargin / totalRevenue) * 100 : 0;
+
+  // Build engineer breakdowns per customer for drill-down
+  const engineerBreakdowns: Record<
+    string,
+    Array<{
+      teamMemberId: string;
+      teamMemberName: string;
+      ticketCount: number;
+      totalTickets: number;
+      percentage: number;
+      attributedCost: number;
+    }>
+  > = {};
+  for (const alloc of costAllocations) {
+    if (!engineerBreakdowns[alloc.customerId]) {
+      engineerBreakdowns[alloc.customerId] = [];
+    }
+    engineerBreakdowns[alloc.customerId].push({
+      teamMemberId: alloc.teamMemberId,
+      teamMemberName: alloc.teamMember.name,
+      ticketCount: alloc.ticketCount,
+      totalTickets: alloc.totalTickets,
+      percentage: alloc.percentage,
+      attributedCost: alloc.attributedCost,
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -141,23 +143,59 @@ export default async function MarginsPage({
         </Card>
       </div>
 
-      {/* Margin Table */}
+      {/* Engineer Cost Matrix */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Engineer Cost Attribution</CardTitle>
+          <CardDescription>
+            Cost per engineer per customer for {selectedMonth}, based on bank
+            payments and Linear ticket distribution.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <EngineerCostMatrix
+            allocations={costAllocations.map((a) => ({
+              teamMemberId: a.teamMemberId,
+              teamMemberName: a.teamMember.name,
+              customerId: a.customerId,
+              customerName: a.customer.displayName,
+              ticketCount: a.ticketCount,
+              totalTickets: a.totalTickets,
+              percentage: a.percentage,
+              attributedCost: a.attributedCost,
+            }))}
+            engineers={teamMembers.map((m) => ({
+              id: m.id,
+              name: m.name,
+            }))}
+            customers={customers.map((c) => ({
+              id: c.id,
+              displayName: c.displayName,
+            }))}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Customer Margins with drill-down */}
       <Card>
         <CardHeader>
           <CardTitle>Customer Margins</CardTitle>
           <CardDescription>
             Revenue vs engineering cost per customer for {selectedMonth}.
+            {costAllocations.length > 0 && " Click a row to see engineer breakdown."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <MarginTable
             margins={currentMargins.map((m) => ({
+              customerId: m.customerId,
               customerName: m.customer.displayName,
               revenue: m.revenue,
               engineeringCost: m.engineeringCost,
               margin: m.margin,
               marginPercent: m.marginPercent,
             }))}
+            engineerBreakdowns={engineerBreakdowns}
           />
         </CardContent>
       </Card>
@@ -175,43 +213,6 @@ export default async function MarginsPage({
               customerName: m.customer.displayName,
               marginPercent: m.marginPercent,
             }))}
-          />
-        </CardContent>
-      </Card>
-
-      {/* Time Allocation Form */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Time Allocation</CardTitle>
-          <CardDescription>
-            Weekly allocation percentages per engineer per customer for{" "}
-            {selectedMonth}. Auto-populated from Linear completed tickets.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <TimeAllocationForm
-            month={selectedMonth}
-            weeks={weeks.map((w) => ({
-              weekNumber: w.weekNumber,
-              label: w.label,
-            }))}
-            teamMembers={teamMembers.map((m) => ({
-              id: m.id,
-              name: m.name,
-              monthlyCost: m.monthlyCost ?? 0,
-            }))}
-            customers={customers.map((c) => ({
-              id: c.id,
-              displayName: c.displayName,
-            }))}
-            existingAllocations={allocations.map((a) => ({
-              teamMemberId: a.teamMemberId,
-              customerId: a.customerId,
-              week: a.week,
-              percentage: a.percentage,
-              source: a.source,
-            }))}
-            syncStatus={syncStatus}
           />
         </CardContent>
       </Card>

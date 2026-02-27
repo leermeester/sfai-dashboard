@@ -8,7 +8,6 @@ import {
   YAxis,
   Tooltip,
   Legend,
-  ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
 
@@ -28,16 +27,16 @@ const COLORS = [
   "#14b8a6", // teal-500
 ];
 
-const CAPACITY_HOURS = 40;
-
 interface Props {
-  teamMembers: Array<{ id: string; name: string }>;
+  teamMembers: Array<{ id: string; name: string; ticketsPerWeek?: number }>;
   forecasts: Array<{
     teamMemberId: string | null;
     customerName: string;
-    hoursNeeded: number;
-    forecastType: string;
+    ticketsNeeded: number;
+    weekStart: string;
   }>;
+  currentWeek: string;
+  nextWeek: string;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -59,11 +58,11 @@ function CustomTooltip({ active, payload, label }: any) {
             style={{ backgroundColor: entry.color }}
           />
           <span className="text-muted-foreground">{entry.name}</span>
-          <span className="ml-auto font-medium">{entry.value}h</span>
+          <span className="ml-auto font-medium">{entry.value}</span>
         </div>
       ))}
       <div className="mt-1 border-t pt-1 text-xs font-semibold">
-        Total: {total}h
+        Total: {total} tickets
       </div>
     </div>
   );
@@ -71,21 +70,21 @@ function CustomTooltip({ active, payload, label }: any) {
 
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-export function CapacityChart({ teamMembers, forecasts }: Props) {
-  const hasShortTerm = forecasts.some((f) => f.forecastType === "this_week");
-  const hasLongTerm = forecasts.some((f) => f.forecastType === "next_week");
+export function CapacityChart({ teamMembers, forecasts, currentWeek, nextWeek }: Props) {
+  const hasThisWeek = forecasts.some((f) => f.weekStart === currentWeek);
+  const hasNextWeek = forecasts.some((f) => f.weekStart === nextWeek);
 
-  const [forecastType, setForecastType] = useState<"this_week" | "next_week">(
-    hasShortTerm ? "this_week" : "next_week"
+  const [selectedWeek, setSelectedWeek] = useState<string>(
+    hasThisWeek ? currentWeek : nextWeek
   );
 
-  const directMatch = forecasts.filter((f) => f.forecastType === forecastType);
+  const directMatch = forecasts.filter((f) => f.weekStart === selectedWeek);
 
   // Next week inherits this week's data when not explicitly set
   const isInherited =
-    forecastType === "next_week" && directMatch.length === 0;
+    selectedWeek === nextWeek && directMatch.length === 0;
   const filtered = isInherited
-    ? forecasts.filter((f) => f.forecastType === "this_week")
+    ? forecasts.filter((f) => f.weekStart === currentWeek)
     : directMatch;
 
   // Derive customers from ALL forecasts so colors stay stable across toggles
@@ -126,7 +125,7 @@ export function CapacityChart({ teamMembers, forecasts }: Props) {
               : f.teamMemberId === person.id) &&
             f.customerName === customer
         )
-        .reduce((sum, f) => sum + f.hoursNeeded, 0);
+        .reduce((sum, f) => sum + f.ticketsNeeded, 0);
       entry[customer] = hours;
       total += hours;
     }
@@ -158,33 +157,38 @@ export function CapacityChart({ teamMembers, forecasts }: Props) {
         fontWeight={600}
         dominantBaseline="central"
       >
-        {total}h
+        {total}
       </text>
     );
   };
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
+  const formatWeekShort = (iso: string) => {
+    const d = new Date(iso);
+    return `Week of ${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+  };
+
   const periodToggle = (
     <div className="mb-3 flex gap-1 rounded-md bg-muted p-1 w-fit">
       <button
-        onClick={() => setForecastType("this_week")}
+        onClick={() => setSelectedWeek(currentWeek)}
         className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
-          forecastType === "this_week"
+          selectedWeek === currentWeek
             ? "bg-background text-foreground shadow-sm"
             : "text-muted-foreground hover:text-foreground"
         }`}
       >
-        This Week
+        {formatWeekShort(currentWeek)}
       </button>
       <button
-        onClick={() => setForecastType("next_week")}
+        onClick={() => setSelectedWeek(nextWeek)}
         className={`rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
-          forecastType === "next_week"
+          selectedWeek === nextWeek
             ? "bg-background text-foreground shadow-sm"
             : "text-muted-foreground hover:text-foreground"
         }`}
       >
-        Next Week
+        {formatWeekShort(nextWeek)}
       </button>
     </div>
   );
@@ -225,7 +229,7 @@ export function CapacityChart({ teamMembers, forecasts }: Props) {
               margin={{ top: 4, right: 48, bottom: 4, left: 4 }}
               barCategoryGap="25%"
             >
-              <XAxis type="number" fontSize={12} unit="h" />
+              <XAxis type="number" fontSize={12} label={{ value: "tickets", position: "insideBottomRight", fontSize: 11 }} />
               <YAxis
                 dataKey="name"
                 type="category"
@@ -237,18 +241,7 @@ export function CapacityChart({ teamMembers, forecasts }: Props) {
                 content={<CustomTooltip />}
                 cursor={{ fill: "hsl(var(--muted))", opacity: 0.5 }}
               />
-              <ReferenceLine
-                x={CAPACITY_HOURS}
-                stroke="hsl(var(--muted-foreground))"
-                strokeDasharray="4 4"
-                strokeWidth={1.5}
-                label={{
-                  value: `${CAPACITY_HOURS}h`,
-                  position: "top",
-                  fontSize: 11,
-                  fill: "hsl(var(--muted-foreground))",
-                }}
-              />
+              {/* No single capacity line — throughput varies per engineer */}
               <Legend
                 iconType="square"
                 iconSize={10}

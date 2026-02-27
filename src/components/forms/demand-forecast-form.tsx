@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,20 +24,20 @@ interface Forecast {
   id: string;
   customerId: string;
   teamMemberId: string | null;
-  hoursNeeded: number;
+  ticketsNeeded: number;
   confidence: string | null;
   notes: string | null;
 }
 
 interface Props {
-  forecastType: string;
+  weekStart: string; // ISO date string of the Monday
   customers: Array<{ id: string; displayName: string }>;
   teamMembers: Array<{ id: string; name: string }>;
   existingForecasts: Forecast[];
 }
 
 type CellData = {
-  hoursNeeded: number;
+  ticketsNeeded: number;
   confidence: string | null;
   notes: string | null;
 };
@@ -64,7 +65,7 @@ function buildGrid(
             : f.teamMemberId === colKey)
       );
       grid[customer.id][colKey] = {
-        hoursNeeded: existing?.hoursNeeded ?? 0,
+        ticketsNeeded: existing?.ticketsNeeded ?? 0,
         confidence: existing?.confidence ?? null,
         notes: existing?.notes ?? null,
       };
@@ -76,7 +77,7 @@ function buildGrid(
 function getRowTotal(grid: Grid, customerId: string): number {
   let total = 0;
   for (const cell of Object.values(grid[customerId] ?? {})) {
-    total += cell.hoursNeeded;
+    total += cell.ticketsNeeded;
   }
   return total;
 }
@@ -84,7 +85,7 @@ function getRowTotal(grid: Grid, customerId: string): number {
 function getColTotal(grid: Grid, colKey: string): number {
   let total = 0;
   for (const customerCells of Object.values(grid)) {
-    total += customerCells[colKey]?.hoursNeeded ?? 0;
+    total += customerCells[colKey]?.ticketsNeeded ?? 0;
   }
   return total;
 }
@@ -93,7 +94,7 @@ function getGrandTotal(grid: Grid): number {
   let total = 0;
   for (const customerCells of Object.values(grid)) {
     for (const cell of Object.values(customerCells)) {
-      total += cell.hoursNeeded;
+      total += cell.ticketsNeeded;
     }
   }
   return total;
@@ -119,11 +120,12 @@ function ConfidenceDot({ confidence }: { confidence: string | null }) {
 }
 
 export function DemandForecastForm({
-  forecastType,
+  weekStart,
   customers,
   teamMembers,
   existingForecasts,
 }: Props) {
+  const router = useRouter();
   const [grid, setGrid] = useState<Grid>(() =>
     buildGrid(customers, teamMembers, existingForecasts)
   );
@@ -134,7 +136,7 @@ export function DemandForecastForm({
   for (const m of teamMembers) colNames[m.id] = m.name;
   colNames[UNASSIGNED] = "Unassigned";
 
-  function updateHours(
+  function updateTickets(
     customerId: string,
     colKey: string,
     value: number
@@ -143,7 +145,7 @@ export function DemandForecastForm({
       ...prev,
       [customerId]: {
         ...prev[customerId],
-        [colKey]: { ...prev[customerId][colKey], hoursNeeded: value },
+        [colKey]: { ...prev[customerId][colKey], ticketsNeeded: value },
       },
     }));
   }
@@ -169,18 +171,18 @@ export function DemandForecastForm({
       const forecasts: Array<{
         customerId: string;
         teamMemberId: string | null;
-        hoursNeeded: number;
+        ticketsNeeded: number;
         confidence: string | null;
         notes: string | null;
       }> = [];
 
       for (const [customerId, cols] of Object.entries(grid)) {
         for (const [colKey, cell] of Object.entries(cols)) {
-          if (cell.hoursNeeded > 0) {
+          if (cell.ticketsNeeded > 0) {
             forecasts.push({
               customerId,
               teamMemberId: colKey === UNASSIGNED ? null : colKey,
-              hoursNeeded: cell.hoursNeeded,
+              ticketsNeeded: cell.ticketsNeeded,
               confidence: cell.confidence,
               notes: cell.notes,
             });
@@ -188,12 +190,17 @@ export function DemandForecastForm({
         }
       }
 
-      await fetch("/api/demand-forecast", {
+      await fetch("/api/capacity/forecast", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ forecasts, forecastType }),
+        body: JSON.stringify({
+          forecasts: forecasts.map((f) => ({
+            ...f,
+            weekStart,
+          })),
+        }),
       });
-      window.location.reload();
+      router.refresh();
     } finally {
       setSaving(false);
     }
@@ -257,9 +264,9 @@ export function DemandForecastForm({
                           <Input
                             type="number"
                             min={0}
-                            value={cell?.hoursNeeded ?? 0}
+                            value={cell?.ticketsNeeded ?? 0}
                             onChange={(e) =>
-                              updateHours(
+                              updateTickets(
                                 customer.id,
                                 colKey,
                                 parseFloat(e.target.value) || 0
@@ -340,7 +347,7 @@ export function DemandForecastForm({
                     );
                   })}
                   <TableCell className="text-center text-sm font-medium tabular-nums py-1 border-l border-muted">
-                    {rowTotal > 0 ? `${rowTotal}h` : "—"}
+                    {rowTotal > 0 ? rowTotal : "—"}
                   </TableCell>
                 </TableRow>
               );
@@ -360,12 +367,12 @@ export function DemandForecastForm({
                       colKey === UNASSIGNED && "border-l border-muted"
                     )}
                   >
-                    {total > 0 ? `${total}h` : "—"}
+                    {total > 0 ? total : "—"}
                   </TableCell>
                 );
               })}
               <TableCell className="text-center text-sm font-bold tabular-nums py-1 border-l border-muted">
-                {getGrandTotal(grid) > 0 ? `${getGrandTotal(grid)}h` : "—"}
+                {getGrandTotal(grid) > 0 ? getGrandTotal(grid) : "—"}
               </TableCell>
             </TableRow>
           </TableBody>

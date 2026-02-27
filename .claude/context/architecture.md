@@ -1,6 +1,6 @@
 # Architecture — SFAI Dashboard
 
-> Last updated: 2026-02-25
+> Last updated: 2026-02-26
 
 ## 1. Stack
 
@@ -19,6 +19,8 @@
 | Validation | Zod | — |
 | Deployment | Vercel | — |
 | Dev server | Next.js Turbopack | — |
+| Testing | Vitest | 2.x |
+| CI | GitHub Actions | — |
 
 ---
 
@@ -57,12 +59,25 @@ sfai-dashboard/
 │   │   ├── forms/              # Config forms, sync button
 │   │   └── charts/             # Capacity, margin trend, forecast accuracy
 │   ├── lib/
+│   │   ├── __tests__/          # Vitest unit tests
+│   │   │   ├── smoke.test.ts
+│   │   │   ├── matching.test.ts
+│   │   │   └── csv-parsing.test.ts
 │   │   ├── auth.ts             # JWT + bcrypt utilities
 │   │   ├── db.ts               # Prisma singleton
+│   │   ├── fetch-with-retry.ts # Retry with exponential backoff (3 retries, 15s timeout)
+│   │   ├── logger.ts           # Structured JSON logging with correlation IDs
+│   │   ├── cost-attribution.ts  # Engineer cost attribution engine (bank payments × ticket distribution)
+│   │   ├── margins.ts          # Shared margin recalculation (uses cost-attribution)
+│   │   ├── matching.ts         # Fuzzy matching engine + per-type thresholds
+│   │   ├── resolution-queue.ts # Queue CRUD with transactional resolution + audit logging
 │   │   ├── sheets.ts           # Google Sheets CSV fetch + parse
 │   │   ├── calendar.ts         # Calendar sheet CSV fetch + meeting sync
 │   │   ├── linear.ts           # Linear GraphQL client
 │   │   ├── mercury.ts          # Mercury REST client
+│   │   ├── slack.ts            # Slack Bot Kit messages + error alerts
+│   │   ├── validations.ts      # Zod schemas for all API routes
+│   │   ├── voice.ts            # Voice session TTS + intent parsing
 │   │   └── utils.ts            # General utilities
 │   └── types/                  # TypeScript type definitions
 ├── vercel.json                 # Cron job schedule
@@ -91,16 +106,33 @@ Mercury Bank API
         → BankTransaction table (reconciled / unreconciled)
 ```
 
-### Capacity Pipeline
+### Capacity Pipeline (Ticket-Based)
 ```
-Linear GraphQL API
-  → /api/linear
-    → getWorkload() groups issues by assignee
-      → Display in capacity chart
+Engineer Throughput:
+  EngineerThroughput (manual billed hours + auto Linear ticket count per month)
+    → ticketsPerWeek = completedTickets / (billedHours / weeklyHours)
+    → Per-engineer capacity rate
 
-Manual input (Settings)
-  → TeamMember, TimeAllocation, DemandForecast
-    → Capacity vs Demand visualization
+Demand Estimation:
+  Linear GraphQL API
+    → getActiveIssues() — started + unstarted tickets
+      → Filter: created within last 30 days (excludes stale backlog)
+        → Group by customer (via project mapping)
+          → Ticket counts per customer (no hours conversion)
+
+Capacity Status:
+  assignedTickets (from DemandForecast) / ticketsPerWeek = utilization
+  weeksOfWork = assignedTickets / ticketsPerWeek
+
+API Routes:
+  GET /api/capacity/status — per-engineer utilization + flagged issues
+  GET /api/capacity/plan — auto-filled plan from Linear + throughput rates
+  PUT /api/capacity/forecast — upsert ticket forecasts
+  POST /api/capacity/confirm-week — batch-save confirmed plan
+  GET/PUT /api/capacity/throughput — engineer throughput rates + billed hours
+
+CLI: sfai capacity [status|plan|detail|throughput]
+Dashboard: /capacity page with ticket-based chart + forecast form
 ```
 
 ### Calendar / Meeting Pipeline
@@ -113,12 +145,24 @@ Google Calendar (DJ + Arthur)
           → ClientMeeting table (team member × customer × duration)
 ```
 
-### Margin Calculation
+### Margin Calculation (Engineer Cost Attribution)
 ```
-SalesSnapshot (revenue)
-  + TimeAllocation (% time per customer per month)
-    + TeamMember (monthlyCost / hourlyRate)
-      → MonthlyMargin (revenue - engineeringCost = margin)
+Mercury sync → BankTransaction (outgoing)
+  → Direct match: counterpartyName → TeamMember.mercuryCounterparty → costCategory="engineer"
+  → Known software list → costCategory="software"
+  → Everything else → costCategory="overhead"
+  → Direct engineer matches create EngineerPayment records immediately during sync
+  → Multi-engineer platforms (Upwork/Deel) → engineer_split resolution item → manual split
+
+Linear sync → Completed tickets by (assignee, project, month)
+  → TicketDistribution (% of tickets per engineer per customer)
+
+EngineerPayment.amount × TicketDistribution.percentage
+  → EngineerCostAllocation (attributed cost per engineer per customer per month)
+    → Sum per customer → MonthlyMargin.engineeringCost
+
+SalesSnapshot / BankTransaction (revenue)
+  - engineeringCost = margin
 ```
 
 ---
@@ -172,14 +216,100 @@ Middleware (every request):
 
 ---
 
+## 7. Resolution Queue System
+
+### Architecture
+Mercury sync pipes unmatched **incoming** transactions through the matching engine and resolution queue. Outgoing transactions are auto-categorized (engineer/software/overhead) without resolution items. Only two resolution types remain: `customer_match` and `engineer_split`.
+
+### Data Flow
+```
+Mercury Sync (incoming transactions)
+  → Matching Engine (src/lib/matching.ts)
+    → Levenshtein + token overlap + substring matching
+      → Confidence scoring (0-100)
+  → Resolution Queue (src/lib/resolution-queue.ts)
+    → Auto-resolve customer_match if confidence ≥ 95%
+    → engineer_split never auto-resolves (threshold: 100)
+    → Queue pending items for human review
+  → 4 Interfaces:
+    ├─ Dashboard UI (/resolution) — card-stack approval
+    ├─ Slack Bot (/api/slack/*) — guided messages with inline buttons
+    ├─ CLI (cli/sfai.ts) — interactive terminal triage
+    └─ Voice (/api/voice/*) — TTS prompts + intent parsing
+  → Side Effects:
+    → customer_match confirmed: updates Customer.bankName, reconciles BankTransaction
+    → engineer_split resolved: creates EngineerPayment records
+    → Feedback loop: resolved entities auto-match on next sync
+
+Mercury Sync (outgoing transactions — no resolution items)
+  → Direct match: counterpartyName → TeamMember.mercuryCounterparty → "engineer"
+  → KNOWN_SOFTWARE list match → "software"
+  → Everything else → "overhead"
+```
+
+### Key Files
+| File | Purpose |
+|------|---------|
+| `src/lib/matching.ts` | Fuzzy matching engine (Levenshtein, token overlap, substring) |
+| `src/lib/resolution-queue.ts` | Queue CRUD: create, get pending, resolve with side effects + proposal generation |
+| `src/lib/proposal-engine.ts` | Generates staged rule proposals from resolution decisions |
+| `src/lib/slack.ts` | Slack Block Kit message builders + interaction handler |
+| `src/lib/voice.ts` | Voice session prompts + transcript intent parsing |
+| `src/app/api/resolution/` | REST endpoints: list, resolve, stats, health |
+| `src/app/api/proposals/` | REST endpoints: list proposals, approve/reject |
+| `src/app/api/rules/` | REST endpoints: list active rules, deactivate |
+| `src/app/api/slack/` | Slack event handler + notification trigger |
+| `src/app/api/voice/` | Voice session + response endpoints |
+| `cli/` | Standalone CLI package (`sfai status/match/sync/health/proposals/rules`) |
+
+### System Learning (Proposal Engine)
+```
+Resolution Decision (confirmed/rejected)
+  → Proposal Engine (src/lib/proposal-engine.ts)
+    → Generate staged proposals (non-blocking, best-effort):
+      ├─ Alias proposals (customer_match → add counterparty as alias)
+      └─ Suppression proposals (rejected → never suggest this match again)
+    → SystemProposal table (status: pending)
+  → User reviews via CLI (`sfai proposals`) or API
+    → Approved → SystemRule created + side effects applied
+    → Rejected → discarded
+```
+
+### Rule Governance
+```
+SystemRule table tracks all active rules:
+  - type: alias, suppression
+  - source: proposal-approved, user-created, seed-data
+  - hitCount: how often the rule fires during matching
+  - lastHitAt: when it last fired
+
+CLI commands:
+  - `sfai rules` — list all active rules grouped by type
+  - `sfai rules --stats` — usage statistics, never-used rules
+  - `sfai rules --review` — interactive audit + deactivate stale rules
+```
+
+---
+
 ## 6. Key Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
 | CSV export instead of Sheets API | Simpler auth (public link), no OAuth needed |
 | Monthly snapshots via cron | Enables forecast accuracy comparison over time |
-| % time allocation (not hours) | Easier retrospective estimate without time tracking |
+| Bank payment × ticket distribution | Actual payments matched to engineers, distributed by Linear ticket completion |
 | Customer alias system | Same customer has different names in Sheets, Mercury, Linear |
 | Single password auth | Only 2 users (co-founders); simple and secure enough |
 | Vercel Postgres | Zero-config with Vercel deployment |
 | Server Components by default | Reduces client JS; data fetching at component level |
+| Vitest for testing | Fast, native TypeScript, Vite ecosystem aligns with project tooling |
+| Export private utils for testability | `parseCsv`, `normalizeMonth`, `parseAmount` exported from sheets.ts so unit tests can cover them directly |
+| Soft deletes over hard deletes | Preserves referential integrity; cascade rules handle FKs |
+| Zod validation at API boundary | Catches malformed payloads before DB operations; schemas in shared `validations.ts` |
+| Structured JSON logging | Enables grep/jq filtering in production; correlation IDs trace requests across sync operations |
+| Retry with exponential backoff | Handles transient 5xx/429 from Mercury, Sheets, Calendar APIs; 3 retries max |
+| Batched DB writes (groups of 50) | Reduces transaction overhead in Mercury/Calendar sync (hundreds of upserts) |
+| Per-type confidence thresholds | Different entity types have different false-positive risk profiles |
+| Transactional resolution | Status update + side effects (bankName, domainMapping, etc.) are atomic via `$transaction` |
+| router.refresh over page reload | Preserves React state, avoids full page flash |
+| AlertDialog for destructive actions | Prevents accidental deletion of customers, team members, vendor rules |

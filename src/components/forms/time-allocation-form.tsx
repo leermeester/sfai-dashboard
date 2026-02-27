@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -53,6 +54,8 @@ export function TimeAllocationForm({
   existingAllocations,
   syncStatus,
 }: Props) {
+  const router = useRouter();
+
   // Build initial grid
   const initialGrid: Grid = {};
   for (const member of teamMembers) {
@@ -133,7 +136,7 @@ export function TimeAllocationForm({
         setSyncing(false);
         return;
       }
-      window.location.reload();
+      router.refresh();
     } catch (e) {
       setSyncError(String(e));
       setSyncing(false);
@@ -173,7 +176,7 @@ export function TimeAllocationForm({
         body: JSON.stringify({ month, allocations }),
       });
 
-      window.location.reload();
+      router.refresh();
     } finally {
       setSaving(false);
     }

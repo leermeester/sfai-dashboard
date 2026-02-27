@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -13,6 +12,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Plus, Save, Trash2 } from "lucide-react";
 
 interface DomainSuggestion {
@@ -40,6 +49,7 @@ export function CustomerMappingForm({
   const [customers, setCustomers] = useState(initialCustomers);
   const [saving, setSaving] = useState(false);
   const [domainSuggestions, setDomainSuggestions] = useState<DomainSuggestion[]>([]);
+  const [deleteIndex, setDeleteIndex] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/calendar?domains=true")
@@ -191,7 +201,7 @@ export function CustomerMappingForm({
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => removeCustomer(index)}
+                    onClick={() => setDeleteIndex(index)}
                   >
                     <Trash2 className="size-4 text-destructive" />
                   </Button>
@@ -223,6 +233,30 @@ export function CustomerMappingForm({
           </option>
         ))}
       </datalist>
+
+      <AlertDialog open={deleteIndex !== null} onOpenChange={(open) => !open && setDeleteIndex(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove customer?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteIndex !== null && customers[deleteIndex]
+                ? `"${customers[deleteIndex].displayName || "Unnamed customer"}" will be removed. Save to persist the change.`
+                : "This customer will be removed."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deleteIndex !== null) removeCustomer(deleteIndex);
+                setDeleteIndex(null);
+              }}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

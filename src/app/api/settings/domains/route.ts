@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/db";
+import { validateBody, domainMappingSchema } from "@/lib/validations";
 
 export async function GET() {
   const mappings = await db.domainMapping.findMany({
@@ -9,13 +11,13 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  const { mappings } = await request.json();
+  const body = await request.json();
+  const parsed = validateBody(z.object({ mappings: z.array(domainMappingSchema) }), body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
 
-  for (const m of mappings as Array<{
-    domain: string;
-    meetingType: string;
-    customerId: string | null;
-  }>) {
+  for (const m of parsed.data.mappings) {
     await db.domainMapping.upsert({
       where: { domain: m.domain },
       create: {

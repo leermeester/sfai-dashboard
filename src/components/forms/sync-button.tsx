@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 
 export function SyncButton({ type }: { type: "sheets" | "mercury" }) {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
 
   async function handleSync() {
@@ -12,7 +14,7 @@ export function SyncButton({ type }: { type: "sheets" | "mercury" }) {
     try {
       const res = await fetch(`/api/${type}`, { method: "POST" });
       if (res.ok) {
-        window.location.reload();
+        router.refresh();
       }
     } finally {
       setLoading(false);

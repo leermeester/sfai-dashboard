@@ -1,16 +1,19 @@
+import { fetchWithRetry } from "./fetch-with-retry";
+import type { Logger } from "./logger";
+
 export interface RevenueCell {
   customer: string;
   month: string;
   amount: number;
 }
 
-export async function getSheetData(): Promise<RevenueCell[]> {
+export async function getSheetData(logger?: Logger): Promise<RevenueCell[]> {
   const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
   if (!spreadsheetId) throw new Error("GOOGLE_SPREADSHEET_ID not set");
 
   // Fetch CSV export directly (requires "Anyone with the link" access)
   const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv`;
-  const res = await fetch(url);
+  const res = await fetchWithRetry(url, undefined, { logger });
   if (!res.ok) throw new Error(`Google Sheets fetch failed: ${res.status}`);
 
   const csv = await res.text();
@@ -20,7 +23,7 @@ export async function getSheetData(): Promise<RevenueCell[]> {
   return parseRevenueMatrix(rows);
 }
 
-function parseCsv(csv: string): string[][] {
+export function parseCsv(csv: string): string[][] {
   const rows: string[][] = [];
   let current = "";
   let inQuotes = false;
@@ -146,7 +149,7 @@ export function parseRevenueMatrix(rows: string[][]): RevenueCell[] {
   return cells;
 }
 
-function normalizeMonth(header: string, defaultYear?: number): string | null {
+export function normalizeMonth(header: string, defaultYear?: number): string | null {
   if (!header) return null;
   const trimmed = header.trim();
 
@@ -192,7 +195,7 @@ function normalizeMonth(header: string, defaultYear?: number): string | null {
   return null;
 }
 
-function parseAmount(value: string): number | null {
+export function parseAmount(value: string): number | null {
   // Remove currency symbols, commas, and spaces
   const cleaned = value.replace(/[$€£,\s]/g, "");
   const num = parseFloat(cleaned);
@@ -208,8 +211,11 @@ export async function testConnection(): Promise<boolean> {
   }
 }
 
-export async function createSnapshot(db: import("@prisma/client").PrismaClient) {
-  const cells = await getSheetData();
+export async function createSnapshot(db: import("@prisma/client").PrismaClient, logger?: Logger) {
+  const startTime = Date.now();
+  logger?.info("Sheets snapshot started");
+  const cells = await getSheetData(logger);
+  logger?.info("Sheet data fetched", { cellCount: cells.length });
   const customers = await db.customer.findMany();
   const now = new Date();
 
@@ -231,16 +237,40 @@ export async function createSnapshot(db: import("@prisma/client").PrismaClient) 
       continue;
     }
 
-    await db.salesSnapshot.create({
-      data: {
+    await db.salesSnapshot.upsert({
+      where: {
+        customerId_month: {
+          customerId: customer.id,
+          month: cell.month,
+        },
+      },
+      create: {
         customerId: customer.id,
         month: cell.month,
+        snapshotDate: now,
+        amount: cell.amount,
+      },
+      update: {
         snapshotDate: now,
         amount: cell.amount,
       },
     });
     created++;
   }
+
+  // Unmatched sheet customer names are logged but not queued for resolution.
+  // Users should update Customer.spreadsheetName in Settings to fix these.
+  if (unmatched.length > 0) {
+    logger?.warn("Unmatched sheet customer names — update Settings > Customers", {
+      names: unmatched,
+    });
+  }
+
+  logger?.info("Sheets snapshot completed", {
+    created,
+    unmatched: unmatched.length,
+    durationMs: Date.now() - startTime,
+  });
 
   return { created, unmatched };
 }

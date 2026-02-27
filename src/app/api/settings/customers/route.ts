@@ -1,11 +1,27 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/db";
+import { validateBody, customerSchema } from "@/lib/validations";
+
+export async function GET() {
+  const customers = await db.customer.findMany({
+    where: { isActive: true },
+    select: { id: true, displayName: true },
+    orderBy: { displayName: "asc" },
+  });
+  return NextResponse.json({ customers });
+}
 
 export async function PUT(request: Request) {
-  const { customers } = await request.json();
+  const body = await request.json();
+  const parsed = validateBody(z.object({ customers: z.array(customerSchema) }), body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
+  const { customers } = parsed.data;
 
-  // Get existing customer IDs
-  const existing = await db.customer.findMany({ select: { id: true } });
+  // Get existing active customer IDs
+  const existing = await db.customer.findMany({ where: { isActive: true }, select: { id: true } });
   const existingIds = new Set(existing.map((c) => c.id));
   const incomingIds = new Set(
     customers
@@ -13,10 +29,10 @@ export async function PUT(request: Request) {
       .map((c: { id: string }) => c.id)
   );
 
-  // Delete removed customers
+  // Soft-delete removed customers (set isActive: false instead of hard delete)
   for (const id of existingIds) {
     if (!incomingIds.has(id)) {
-      await db.customer.delete({ where: { id } });
+      await db.customer.update({ where: { id }, data: { isActive: false } });
     }
   }
 
@@ -34,15 +50,31 @@ export async function PUT(request: Request) {
       isActive: customer.isActive ?? true,
     };
 
+    let saved;
     if (customer.id.startsWith("new-")) {
-      const created = await db.customer.create({ data });
-      result.push(created);
+      saved = await db.customer.create({ data });
     } else {
-      const updated = await db.customer.update({
+      saved = await db.customer.update({
         where: { id: customer.id },
         data,
       });
-      result.push(updated);
+    }
+    result.push(saved);
+
+    // Auto-promote domain mapping to "client" when customer has an emailDomain
+    if (data.emailDomain) {
+      await db.domainMapping.upsert({
+        where: { domain: data.emailDomain.toLowerCase() },
+        create: {
+          domain: data.emailDomain.toLowerCase(),
+          meetingType: "client",
+          customerId: saved.id,
+        },
+        update: {
+          meetingType: "client",
+          customerId: saved.id,
+        },
+      });
     }
   }
 

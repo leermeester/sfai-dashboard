@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import * as mercury from "@/lib/mercury";
+import { recalculateMargins } from "@/lib/margins";
+import { validateBody, mercuryActionSchema } from "@/lib/validations";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -15,9 +17,13 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const body = await request.json();
+  const parsed = validateBody(mercuryActionSchema, body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
 
-  if (body.action === "categorize") {
-    const { txnId, costCategory } = body;
+  if (parsed.data.action === "categorize") {
+    const { txnId, costCategory } = parsed.data;
     const txn = await db.bankTransaction.findUnique({ where: { id: txnId } });
     if (!txn) {
       return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
@@ -28,17 +34,14 @@ export async function POST(request: Request) {
       data: { costCategory },
     });
 
-    // Recalculate monthly costs for the affected month
-    if (txn.postedAt) {
-      const { recalculateMonthlyCosts } = await import("@/lib/mercury");
-      await recalculateMonthlyCosts(db);
-    }
+    // Recalculate monthly costs
+    await mercury.recalculateMonthlyCosts(db);
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, costsRecalculated: true });
   }
 
-  if (body.action === "reconcile") {
-    const { txnId, customerId } = body;
+  if (parsed.data.action === "reconcile") {
+    const { txnId, customerId } = parsed.data;
     const txn = await db.bankTransaction.findUnique({ where: { id: txnId } });
     if (!txn) {
       return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
@@ -59,10 +62,15 @@ export async function POST(request: Request) {
       },
     });
 
-    return NextResponse.json({ success: true });
+    // Recalculate margins for the affected month
+    if (reconciledMonth) {
+      await recalculateMargins(db, reconciledMonth);
+    }
+
+    return NextResponse.json({ success: true, marginsRecalculated: !!reconciledMonth });
   }
 
-  // Default: sync transactions
+  // parsed.data.action === "sync"
   const result = await mercury.syncTransactions(db);
   return NextResponse.json(result);
 }

@@ -1,14 +1,28 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentMonth } from "@/lib/utils";
+import { getCurrentWeekStart } from "@/lib/capacity";
+import { addWeeks } from "date-fns";
+import { validateBody, forecastPayloadSchema } from "@/lib/validations";
 
+/**
+ * Legacy endpoint — kept for backward compatibility.
+ * Converts old forecastType ("this_week"/"next_week") to weekStart dates.
+ * New code should use PUT /api/capacity/forecast instead.
+ */
 export async function PUT(request: Request) {
-  const { forecasts, forecastType } = await request.json();
-  const month = getCurrentMonth();
+  const body = await request.json();
+  const parsed = validateBody(forecastPayloadSchema, body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
+  const { forecasts, forecastType } = parsed.data;
 
-  // Delete existing forecasts of this type for the current month
+  const currentWeek = getCurrentWeekStart();
+  const weekStart = forecastType === "next_week" ? addWeeks(currentWeek, 1) : currentWeek;
+
+  // Delete existing forecasts for this week
   await db.demandForecast.deleteMany({
-    where: { month, forecastType },
+    where: { weekStart },
   });
 
   // Create new forecasts
@@ -17,8 +31,7 @@ export async function PUT(request: Request) {
       data: {
         customerId: forecast.customerId,
         teamMemberId: forecast.teamMemberId || null,
-        month,
-        forecastType,
+        weekStart,
         hoursNeeded: forecast.hoursNeeded,
         confidence: forecast.confidence,
         notes: forecast.notes,
