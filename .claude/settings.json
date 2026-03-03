@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git rm -r .claude/skills/shared)",
+      "Bash(git rm -r .claude)",
+      "Bash(git fetch skills-repo)",
+      "Bash(git subtree add --prefix=.claude skills-repo main --squash)"
+    ],
+    "additionalDirectories": [
+      "/Users/dirkjanvanveen/Github/sfai-dashboard/.claude"
+    ]
+  }
+}
