@@ -280,13 +280,40 @@ Capacity is measured in **tickets/week** with individual throughput rates:
 
 ---
 
+### Founder Capacity & Portfolio (2026-03-02)
+
+Added a Founder Capacity section to the Capacity page. Answers the monthly question: "How many new clients do we need to get?"
+
+#### Schema
+- [x] `Customer.primaryFounderId` — nullable FK to TeamMember (founder assignment)
+- [x] `TeamMember.founderCustomers` — inverse relation
+
+#### New Files
+- [x] `src/lib/founder-capacity.ts` — Core computation: founder caps (DJ:9, Arthur:7, combined:15), portfolio data, churn detection, meeting-based inference
+- [x] `src/components/founder-capacity-bars.tsx` — Capacity utilization bars (green/amber/red)
+- [x] `src/components/tables/founder-portfolio-table.tsx` — Sortable table: client, founder, revenue, margin, margin%, meetings, hours, rev/slot
+- [x] `src/components/tables/churn-forecast-table.tsx` — At-risk clients with >50% revenue decline
+- [x] `src/components/new-clients-summary.tsx` — KPI cards: slots available, revenue at risk, active clients
+- [x] `src/app/api/founder-capacity/route.ts` — GET endpoint for CLI/external access
+
+#### Modified Files
+- [x] `prisma/schema.prisma` — Added primaryFounderId + relation
+- [x] `src/app/(dashboard)/capacity/page.tsx` — Added Founder Capacity section at top with MonthPicker + all new components
+- [x] `src/lib/validations.ts` — Added primaryFounderId to customerSchema
+- [x] `src/middleware.ts` — Added `/api/founder-capacity` to bearer token paths
+- [x] `src/app/(dashboard)/settings/page.tsx` — Passes primaryFounderId + founders to form
+- [x] `src/components/forms/customer-mapping-form.tsx` — Added "Founder" select column
+- [x] `src/app/api/settings/customers/route.ts` — Persists primaryFounderId on save
+
+---
+
 ## In Progress
 
 - [ ] Run data migration (`npx tsx prisma/migrate-resolution-simplify.ts`)
 - [ ] Reconcile 11 Stripe payouts ($87.5k) via dashboard UI
 - [ ] Set `mercuryCounterparty` for team members in Settings (needed for engineer cost matching)
 - [ ] Create "SFAI Internal" pseudo-customer for internal ticket cost tracking
-- [ ] Set `role` for team members (all default to "engineer")
+- [ ] Set `role` for team members (all default to "engineer") — **required for Founder Capacity: DJ + Arthur must be "cofounder"**
 - [ ] Map `linearProjectId` for customers (needed for capacity planning)
 - [ ] Deploy Apps Script + set `GOOGLE_CALENDAR_SHEET_ID` env var
 - [ ] Set `emailDomain` for each customer in Settings

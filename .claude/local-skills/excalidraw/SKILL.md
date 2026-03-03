@@ -110,11 +110,15 @@ These rules produce clean, polished, McKinsey-quality diagrams. Follow them exac
 
 **ALWAYS emit the text element immediately after its parent shape** (shape → text → arrows → next shape).
 
-### Spacing & Alignment
-- Minimum 30px gap between all elements
+### Spacing & Alignment (CRITICAL — no overlaps)
+- Minimum 30px gap between all elements (shapes, text, arrows)
+- **Boxes must NEVER overlap other boxes.** Before placing any shape, verify that its bounding box (`x` to `x+width`, `y` to `y+height`) does not intersect any previously placed shape's bounding box. If it would overlap, increase the gap or reposition.
+- When laying out elements in a row, compute positions arithmetically: `next_x = prev_x + prev_width + gap`. Do NOT eyeball positions.
+- When laying out elements in a column, compute: `next_y = prev_y + prev_height + gap`.
 - Align elements on a consistent grid (same Y for horizontal flows, same X for vertical flows)
 - Center-align groups of related elements
 - Text must NEVER overlap adjacent elements or other text
+- **Validation check**: After computing all positions, mentally verify that no two shapes share overlapping coordinate ranges on both axes simultaneously
 
 ### Color Usage
 - Maximum 3-4 fill colors per diagram
@@ -337,7 +341,7 @@ Then adjust all colors:
 1. **Using `label` property on shapes** — Labels frequently don't render. ALWAYS use standalone text elements positioned inside boxes instead
 2. **Inconsistent box sizes** — Same-level elements must be identical dimensions
 3. **Text overflow** — Shorten text before resizing boxes
-4. **Overlapping text** — Always verify text doesn't overlap adjacent elements or other text
+4. **Overlapping elements** — Boxes must never overlap other boxes. Always compute positions arithmetically (`next_x = prev_x + prev_width + gap`) instead of eyeballing. Text must never overlap adjacent elements or other text
 5. **Too many colors** — Max 3-4 fill colors per diagram
 6. **Forgetting roughness: 0** — Every element must have sharp edges
 7. **Skipping auto-export** — ALWAYS export and present the shareable link

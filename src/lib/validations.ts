@@ -190,6 +190,29 @@ export const mercuryActionSchema = z.discriminatedUnion("action", [
 export type MercuryAction = z.infer<typeof mercuryActionSchema>;
 
 // ---------------------------------------------------------------------------
+// 12. monthlyAllocationSchema – POST /api/allocate
+// ---------------------------------------------------------------------------
+const FIBONACCI_WEIGHTS = [1, 2, 3, 5, 8, 13, 21, 34] as const;
+
+export const monthlyAllocationEntrySchema = z.object({
+  teamMemberId: z.string().min(1),
+  customerId: z.string().min(1),
+  weight: z.number().int().refine(
+    (w) => (FIBONACCI_WEIGHTS as readonly number[]).includes(w),
+    { message: "Weight must be a Fibonacci number (1, 2, 3, 5, 8, 13, 21, 34)" }
+  ),
+});
+
+export type MonthlyAllocationEntry = z.infer<typeof monthlyAllocationEntrySchema>;
+
+export const monthlyAllocationPayloadSchema = z.object({
+  month: z.string().regex(/^\d{4}-\d{2}$/, "Month must be in YYYY-MM format"),
+  allocations: z.array(monthlyAllocationEntrySchema),
+});
+
+export type MonthlyAllocationPayload = z.infer<typeof monthlyAllocationPayloadSchema>;
+
+// ---------------------------------------------------------------------------
 // Helper: validateBody
 // ---------------------------------------------------------------------------
 export function validateBody<T>(

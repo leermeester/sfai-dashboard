@@ -47,6 +47,7 @@ export async function PUT(request: Request) {
       linearProjectId: customer.linearProjectId || null,
       email: customer.email || null,
       aliases: customer.aliases ?? [],
+      primaryFounderId: customer.primaryFounderId || null,
       isActive: customer.isActive ?? true,
     };
 

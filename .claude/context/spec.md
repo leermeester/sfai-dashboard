@@ -44,6 +44,11 @@ Access is restricted to co-founders only (Arthur, DJ).
 ### 2.4 Capacity Planning (`/capacity`)
 | Feature | Status | Notes |
 |---------|--------|-------|
+| **Founder Capacity section** | **Implemented** | **DJ: 9 slots, Arthur: 7 slots, Combined: 15. Month picker, capacity bars, portfolio table, churn forecast** |
+| **New Clients Summary KPIs** | **Implemented** | **Slots available, revenue at risk, active client count** |
+| **Per-client portfolio table** | **Implemented** | **Sortable: client, founder, revenue, margin, margin%, meetings, hours, rev/slot** |
+| **Churn forecast table** | **Implemented** | **Clients with >50% revenue decline next month (from SalesSnapshot)** |
+| **Primary founder assignment** | **Implemented** | **Customer.primaryFounderId field + Settings dropdown + calendar-based inference** |
 | Team roster table | Implemented | Name, role, rate, cost, active status |
 | Capacity vs Demand chart | Implemented | Ticket-based (per member, stacked by customer) |
 | Demand forecast form | Implemented | Ticket-based input, short-term (2 weeks) |
@@ -125,7 +130,7 @@ Access is restricted to co-founders only (Arthur, DJ).
 | Model | Purpose |
 |-------|---------|
 | `TeamMember` | Staff: name, role, rate, cost, Linear user ID, Mercury counterparty (soft delete via isActive) |
-| `Customer` | Clients with name mappings (display, sheets, bank, linear, aliases) (soft delete via isActive) |
+| `Customer` | Clients with name mappings (display, sheets, bank, linear, aliases) + primaryFounderId (soft delete via isActive) |
 | `SalesSnapshot` | Monthly revenue snapshots from Google Sheets (unique on customerId+month) |
 | `BankTransaction` | Mercury transactions with reconciliation status |
 | `TimeAllocation` | % of team member time per customer per month |

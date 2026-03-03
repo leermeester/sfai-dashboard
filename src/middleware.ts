@@ -39,6 +39,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/slack") ||
     pathname.startsWith("/api/voice") ||
     pathname.startsWith("/api/capacity") ||
+    pathname.startsWith("/api/founder-capacity") ||
+    pathname.startsWith("/api/allocate") ||
     pathname.startsWith("/api/settings")
   ) {
     const authHeader = request.headers.get("authorization");
