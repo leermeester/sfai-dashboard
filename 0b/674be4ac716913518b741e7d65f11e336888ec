@@ -1,0 +1,36 @@
+scripts/export-config-for-ingestor.ts
+  3a96fef9ace20df1 1-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "0b674be4ac716913518b741e7d65f11e336888ec",
+  "prompts": {
+    "3a96fef9ace20df1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fdf8f7b3-ccad-46b0-a044-21df9dec49a4",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "leermeester",
+      "messages": [],
+      "total_additions": 72,
+      "total_deletions": 38,
+      "accepted_lines": 72,
+      "overriden_lines": 0
+    },
+    "b4d4607bed03e922": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "071727d1-4b24-441a-a7cc-d07ffd6a1ace",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "leermeester",
+      "messages": [],
+      "total_additions": 68,
+      "total_deletions": 30,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  }
+}
