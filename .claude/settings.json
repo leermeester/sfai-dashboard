@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git rm -r .claude/skills/shared)",
+      "Bash(git rm -r .claude)",
+      "Bash(git fetch skills-repo)",
+      "Bash(git subtree add --prefix=.claude skills-repo main --squash)",
+      "Bash(git stash pop)",
+      "Bash(git stash drop)",
+      "Bash(npx tsx -e \":*)"
+    ],
+    "additionalDirectories": [
+      "/Users/dirkjanvanveen/Github/sfai-dashboard/.claude",
+      "/Users/dirkjanvanveen/Github/sfai-dashboard/.claude/local-skills/excalidraw"
+    ]
+  }
+}

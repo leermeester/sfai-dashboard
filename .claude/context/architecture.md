@@ -65,6 +65,7 @@ sfai-dashboard/
 │   │   │   └── csv-parsing.test.ts
 │   │   ├── auth.ts             # JWT + bcrypt utilities
 │   │   ├── db.ts               # Prisma singleton
+│   │   ├── founder-capacity.ts # Founder capacity computation (slots, portfolio, churn)
 │   │   ├── fetch-with-retry.ts # Retry with exponential backoff (3 retries, 15s timeout)
 │   │   ├── logger.ts           # Structured JSON logging with correlation IDs
 │   │   ├── cost-attribution.ts  # Engineer cost attribution engine (bank payments × ticket distribution)
@@ -133,6 +134,33 @@ API Routes:
 
 CLI: sfai capacity [status|plan|detail|throughput]
 Dashboard: /capacity page with ticket-based chart + forecast form
+```
+
+### Founder Capacity Pipeline
+```
+Founder Identification:
+  TeamMember WHERE role = "cofounder" → DJ (cap: 9), Arthur (cap: 7)
+
+Client Assignment (3 layers):
+  1. Explicit: Customer.primaryFounderId → TeamMember
+  2. Inferred: ClientMeeting data — which founder has meetings with client
+  3. "Both": detected when both founders have meetings with same client
+
+Revenue per Slot:
+  SalesSnapshot (current month) → revenue per client
+  MonthlyMargin → margin per client
+  ClientMeeting.groupBy(founderId, customerId) → meeting counts/hours
+
+Churn Detection:
+  SalesSnapshot(currentMonth) vs SalesSnapshot(nextMonth)
+  → Flag clients with >50% revenue decline
+
+Summary:
+  slotsAvailable = combinedCap - activeClients + expectedChurn
+  revenueAtRisk = sum(churning client revenues)
+
+API: GET /api/founder-capacity?month=YYYY-MM
+Dashboard: /capacity page (Founder Capacity section at top)
 ```
 
 ### Calendar / Meeting Pipeline
@@ -313,3 +341,5 @@ CLI commands:
 | Transactional resolution | Status update + side effects (bankName, domainMapping, etc.) are atomic via `$transaction` |
 | router.refresh over page reload | Preserves React state, avoids full page flash |
 | AlertDialog for destructive actions | Prevents accidental deletion of customers, team members, vendor rules |
+| Hard-coded founder caps (DJ:9, Arthur:7) | Only 2 founders; DB storage is over-engineering. Code change is acceptable. |
+| primaryFounderId + meeting inference | Explicit assignment with calendar-based fallback. "Both" detected from meeting data. |

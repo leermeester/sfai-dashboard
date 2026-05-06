@@ -13,6 +13,7 @@ import { health } from "./commands/health.js";
 import { proposals } from "./commands/proposals.js";
 import { rules } from "./commands/rules.js";
 import { capacity } from "./commands/capacity.js";
+import { allocate } from "./commands/allocate.js";
 
 const BASE_URL = process.env.SFAI_DASHBOARD_URL || "http://localhost:3000";
 const AUTH_TOKEN = process.env.CRON_SECRET || "";
@@ -52,6 +53,9 @@ async function main() {
     case "capacity":
       await capacity(BASE_URL, flags, AUTH_TOKEN);
       break;
+    case "allocate":
+      await allocate(BASE_URL, flags, AUTH_TOKEN);
+      break;
     default:
       log.info("Commands:");
       log.step("  sfai status     — Show pending item counts");
@@ -61,6 +65,7 @@ async function main() {
       log.step("  sfai backfill   — Scan existing data for unmatched entities");
       log.step("  sfai proposals  — Review auto-learned rule proposals");
       log.step("  sfai rules      — Manage active matching rules");
+      log.step("  sfai allocate   — Monthly prospective capacity planning");
       log.step("  sfai capacity   — Team capacity planning & forecasting");
       log.step("  sfai capacity plan   — Update weekly forecasts");
       log.step("  sfai capacity detail — Full 4-week breakdown");

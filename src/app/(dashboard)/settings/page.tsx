@@ -103,8 +103,12 @@ export default async function SettingsPage({
                   linearProjectId: c.linearProjectId,
                   email: c.email,
                   aliases: c.aliases,
+                  primaryFounderId: c.primaryFounderId,
                   isActive: c.isActive,
                 }))}
+                founders={teamMembers
+                  .filter((m) => m.role === "cofounder" && m.isActive)
+                  .map((m) => ({ id: m.id, name: m.name }))}
               />
             </CardContent>
           </Card>

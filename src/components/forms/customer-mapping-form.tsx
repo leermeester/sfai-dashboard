@@ -29,6 +29,11 @@ interface DomainSuggestion {
   meetingCount: number;
 }
 
+interface Founder {
+  id: string;
+  name: string;
+}
+
 interface Customer {
   id: string;
   displayName: string;
@@ -38,13 +43,16 @@ interface Customer {
   linearProjectId: string | null;
   email: string | null;
   aliases: string[];
+  primaryFounderId: string | null;
   isActive: boolean;
 }
 
 export function CustomerMappingForm({
   customers: initialCustomers,
+  founders = [],
 }: {
   customers: Customer[];
+  founders?: Founder[];
 }) {
   const [customers, setCustomers] = useState(initialCustomers);
   const [saving, setSaving] = useState(false);
@@ -72,6 +80,7 @@ export function CustomerMappingForm({
         linearProjectId: null,
         email: null,
         aliases: [],
+        primaryFounderId: null,
         isActive: true,
       },
     ]);
@@ -130,6 +139,7 @@ export function CustomerMappingForm({
               <TableHead>Email Domain</TableHead>
               <TableHead>Linear Project ID</TableHead>
               <TableHead>Aliases (comma-separated)</TableHead>
+              {founders.length > 0 && <TableHead>Founder</TableHead>}
               <TableHead></TableHead>
             </TableRow>
           </TableHeader>
@@ -197,6 +207,24 @@ export function CustomerMappingForm({
                     className="min-w-[200px]"
                   />
                 </TableCell>
+                {founders.length > 0 && (
+                  <TableCell>
+                    <select
+                      value={customer.primaryFounderId ?? ""}
+                      onChange={(e) =>
+                        updateCustomer(index, "primaryFounderId", e.target.value)
+                      }
+                      className="h-9 rounded-md border border-input bg-background px-3 text-sm min-w-[100px]"
+                    >
+                      <option value="">—</option>
+                      {founders.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.name}
+                        </option>
+                      ))}
+                    </select>
+                  </TableCell>
+                )}
                 <TableCell>
                   <Button
                     variant="ghost"
