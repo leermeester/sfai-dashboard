@@ -17,6 +17,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx prisma generate
-      - run: npm run lint
+      # `next lint` was removed in Next.js 16 and the repo has no ESLint
+      # flat config yet — re-enable once migrated to `eslint .` or biome.
       - run: npx tsc --noEmit
       - run: npm test
